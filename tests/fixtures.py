@@ -20,16 +20,40 @@ if REPO_ROOT not in sys.path:
 import sarathi  # noqa: E402  (import after sys.path fix, by design)
 
 
-def write_config(config_dir, project_roots, output_path, schema_version=1,
+def write_config(config_dir, project_roots, output_path, schema_version=None,
                   extra_keys=None, omit_keys=None):
-    """Write <config_dir>/sarathi/config.json. Pass omit_keys to build an
-    intentionally-invalid config (missing required key); extra_keys to add
-    an intentionally-unknown key."""
+    """Write <config_dir>/sarathi/config.json.
+
+    `schema_version` defaults to `sarathi.CONFIG_SCHEMA_VERSION` (the
+    current version) — and whenever the resolved version equals the
+    current one, `voice="plain"` and `invoker=sys.executable` are filled in
+    automatically, so a bare call produces a config `doctor` considers
+    fully healthy end-to-end (config check "ok", not just `measure`
+    working). This is what most of SAR-01's existing suite implicitly
+    wants: "give me a working config, I only care what's downstream of it."
+
+    Pass `schema_version=1` explicitly for a genuinely v0.1-shaped config
+    (exactly the original three keys, no `voice`/`invoker` — the
+    auto-added v2 keys are skipped whenever the resolved version isn't
+    current, since a stale config shouldn't silently carry current-version
+    keys it never asked for). Use `omit_keys` to still drop `voice`/
+    `invoker` from an otherwise-current config (e.g. to build a "malformed
+    v2" fixture, config missing just `invoker`); `extra_keys` to add an
+    unknown key or override any key by name (extra_keys always wins, so it
+    can also be used to force an intentionally-invalid value, e.g. a bad
+    `voice`).
+    """
+    resolved_schema = (
+        schema_version if schema_version is not None else sarathi.CONFIG_SCHEMA_VERSION
+    )
     cfg = {
-        "schema_version": schema_version,
+        "schema_version": resolved_schema,
         "project_roots": project_roots,
         "output_path": output_path,
     }
+    if resolved_schema == sarathi.CONFIG_SCHEMA_VERSION:
+        cfg["voice"] = "plain"
+        cfg["invoker"] = sys.executable
     if omit_keys:
         for k in omit_keys:
             cfg.pop(k, None)

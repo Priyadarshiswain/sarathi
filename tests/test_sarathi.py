@@ -579,5 +579,267 @@ class TestNoNetworkImports(unittest.TestCase):
                 )
 
 
+# ----------------------------------------------------------------------------
+# SAR-02 additions below: plugin manifests, the doctor `branch` classifier,
+# and the config schema v1 -> v2 split. Everything above this line is
+# SAR-01's original suite, re-run unmodified as regression coverage (§8).
+# ----------------------------------------------------------------------------
+class TestPluginManifests(unittest.TestCase):
+    """Criterion 1: plugin.json / marketplace.json parse as valid JSON and
+    agree on the plugin name. Structural correctness only -- whether Claude
+    Code's own plugin loader actually installs them (criterion 2) is
+    reviewer-verified, not code-tested (the coder does not own that loader)."""
+
+    def test_plugin_json_valid(self):
+        path = os.path.join(REPO_ROOT, ".claude-plugin", "plugin.json")
+        with open(path, encoding="utf-8") as fh:
+            data = json.load(fh)
+        self.assertEqual(data["name"], "sarathi")
+        self.assertEqual(data["version"], "0.2.0")
+
+    def test_marketplace_json_valid(self):
+        plugin_path = os.path.join(REPO_ROOT, ".claude-plugin", "plugin.json")
+        with open(plugin_path, encoding="utf-8") as fh:
+            plugin_data = json.load(fh)
+        marketplace_path = os.path.join(REPO_ROOT, ".claude-plugin", "marketplace.json")
+        with open(marketplace_path, encoding="utf-8") as fh:
+            marketplace_data = json.load(fh)
+        self.assertTrue(marketplace_data["plugins"])
+        names = [p["name"] for p in marketplace_data["plugins"]]
+        self.assertIn(plugin_data["name"], names)
+
+
+class TestDoctorBranchClassifier(unittest.TestCase):
+    """Criteria 6-8: compute_doctor_branch() is a pure function of the
+    per-check statuses, tested directly against synthetic check lists so
+    the classifier's own logic is verified independent of the real
+    environment (git/python availability on the machine running the
+    suite)."""
+
+    def _checks(self, **overrides):
+        """A full 8-name synthetic check list, all "ok" unless overridden
+        by name -> status."""
+        names = [
+            "python_version", "git_present", "config_dir", "config",
+            "project_roots_readable", "session_slug_roundtrip",
+            "memory_parseable", "output_writable",
+        ]
+        return [
+            {"name": n, "status": overrides.get(n, "ok"), "detail": "synthetic"}
+            for n in names
+        ]
+
+    def test_doctor_branch_all_ok(self):
+        checks = self._checks(session_slug_roundtrip="empty", memory_parseable="empty")
+        self.assertEqual(sarathi.compute_doctor_branch(checks), "proceed")
+
+    def test_doctor_branch_config_only_missing(self):
+        checks = self._checks(config="failed")
+        self.assertEqual(sarathi.compute_doctor_branch(checks), "init")
+
+    def test_doctor_branch_config_only_stale(self):
+        # Same shape as "missing" from the classifier's point of view --
+        # it only looks at check *names* and *statuses*, never reasons
+        # (criterion 7: "not found," unparseable JSON, or stale schema
+        # version all route to "init" identically).
+        checks = self._checks(config="failed")
+        self.assertEqual(sarathi.compute_doctor_branch(checks), "init")
+
+    def test_doctor_branch_env_broken(self):
+        checks = self._checks(git_present="failed")
+        self.assertEqual(sarathi.compute_doctor_branch(checks), "stop")
+
+    def test_doctor_branch_env_and_config_broken(self):
+        checks = self._checks(git_present="failed", config="failed")
+        self.assertEqual(sarathi.compute_doctor_branch(checks), "stop")
+
+
+class TestDoctorBranchIntegration(TempDirCase):
+    """Same criteria (6-8), exercised end to end through the real `sarathi
+    doctor --json` CLI output rather than a synthetic check list -- proves
+    the classifier is actually wired into cmd_doctor()'s output, not just
+    correct in isolation."""
+
+    def _config_with_invoker(self, **kw):
+        out_path = os.path.join(self.tmp, "facts.json")
+        write_config(self.config_dir, [self.projects_root], out_path, **kw)
+        return out_path
+
+    def test_healthy_config_yields_proceed(self):
+        self.build_project(name="healthy-proj")
+        self._config_with_invoker()  # default: current schema, voice+invoker set
+        r = run_sarathi(["doctor", "--json"], config_dir=self.config_dir)
+        payload = json.loads(r.stdout)
+        self.assertEqual(payload["branch"], "proceed")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+
+    def test_stale_v1_config_yields_init(self):
+        self.build_project(name="healthy-proj")
+        self._config_with_invoker(schema_version=1)
+        r = run_sarathi(["doctor", "--json"], config_dir=self.config_dir)
+        payload = json.loads(r.stdout)
+        self.assertEqual(payload["branch"], "init")
+
+    def test_missing_config_yields_init(self):
+        r = run_sarathi(["doctor", "--json"], config_dir=self.config_dir)
+        payload = json.loads(r.stdout)
+        self.assertEqual(payload["branch"], "init")
+
+    def test_git_missing_yields_stop_even_with_healthy_config(self):
+        self.build_project(name="healthy-proj")
+        self._config_with_invoker()
+        empty_path_dir = tempfile.mkdtemp()
+        try:
+            r = run_sarathi(
+                ["doctor", "--json"], config_dir=self.config_dir,
+                path_override=empty_path_dir,
+            )
+        finally:
+            os.rmdir(empty_path_dir)
+        payload = json.loads(r.stdout)
+        self.assertEqual(payload["branch"], "stop")
+
+    def test_git_missing_and_config_stale_yields_stop(self):
+        self.build_project(name="healthy-proj")
+        self._config_with_invoker(schema_version=1)
+        empty_path_dir = tempfile.mkdtemp()
+        try:
+            r = run_sarathi(
+                ["doctor", "--json"], config_dir=self.config_dir,
+                path_override=empty_path_dir,
+            )
+        finally:
+            os.rmdir(empty_path_dir)
+        payload = json.loads(r.stdout)
+        self.assertEqual(payload["branch"], "stop")
+
+
+class TestConfigSchemaV1V2Split(TempDirCase):
+    """Criteria 18-23: load_config()'s required set stays v0.1's three
+    keys forever; doctor's `config` check is the stricter, separate,
+    skill-facing notion of "current"."""
+
+    def test_config_v1_still_loads_for_measure(self):
+        self.build_project(name="proj")
+        out_path = os.path.join(self.tmp, "facts.json")
+        write_config(self.config_dir, [self.projects_root], out_path, schema_version=1)
+
+        # Direct load_config(): no error, no voice/invoker present or required.
+        cfg, _ = sarathi.load_config(self.config_dir)
+        self.assertEqual(cfg["schema_version"], 1)
+        self.assertNotIn("voice", cfg)
+        self.assertNotIn("invoker", cfg)
+
+        # And the CLI: bare `measure` exits 0 and writes a fact sheet, exactly
+        # as v0.1 did.
+        r = run_sarathi(["measure"], config_dir=self.config_dir)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertTrue(os.path.exists(out_path))
+
+    def test_config_v1_reports_stale_not_missing_key(self):
+        out_path = os.path.join(self.tmp, "facts.json")
+        write_config(self.config_dir, [self.projects_root], out_path, schema_version=1)
+        stale_check = sarathi.check_config(self.config_dir)
+        self.assertEqual(stale_check["status"], "failed")
+        self.assertIn("stale", stale_check["detail"])
+        self.assertNotIn("missing required key", stale_check["detail"])
+
+        # Contrast against a genuinely-missing-required-key config, which
+        # must produce different wording -- both are "failed", but for
+        # distinguishable reasons (criterion 20 asserts the text itself
+        # differs, not just the status).
+        other_dir = os.path.join(self.tmp, "other-config")
+        os.makedirs(other_dir, exist_ok=True)
+        write_config(other_dir, [], out_path, omit_keys=["project_roots"])
+        missing_check = sarathi.check_config(other_dir)
+        self.assertEqual(missing_check["status"], "failed")
+        self.assertIn("missing required key", missing_check["detail"])
+        self.assertNotIn("stale", missing_check["detail"])
+        self.assertNotEqual(stale_check["detail"], missing_check["detail"])
+
+    def test_config_v2_valid(self):
+        out_path = os.path.join(self.tmp, "facts.json")
+        write_config(self.config_dir, [self.projects_root], out_path)  # v2 by default
+        cfg, _ = sarathi.load_config(self.config_dir)
+        self.assertEqual(cfg["schema_version"], sarathi.CONFIG_SCHEMA_VERSION)
+        self.assertIn("voice", cfg)
+        self.assertIn("invoker", cfg)
+        check = sarathi.check_config(self.config_dir)
+        self.assertEqual(check["status"], "ok")
+
+    def test_config_rejects_bad_voice_value(self):
+        out_path = os.path.join(self.tmp, "facts.json")
+        write_config(
+            self.config_dir, [self.projects_root], out_path,
+            extra_keys={"voice": "sarcastic"},
+        )
+        with self.assertRaises(sarathi.ConfigError) as ctx:
+            sarathi.load_config(self.config_dir)
+        self.assertIn("voice", str(ctx.exception))
+
+        # Rejected at load_config() itself means bare `measure` breaks too
+        # (reviewer ruling: deliberate rule-1 strictness).
+        r = run_sarathi(["measure"], config_dir=self.config_dir)
+        self.assertNotEqual(r.returncode, 0)
+
+    def test_config_v2_missing_invoker_flagged_by_doctor_not_measure(self):
+        self.build_project(name="proj")
+        out_path = os.path.join(self.tmp, "facts.json")
+        write_config(
+            self.config_dir, [self.projects_root], out_path,
+            omit_keys=["invoker"],
+        )  # schema_version 2, voice present, invoker absent
+
+        # measure still runs -- criterion 18's optionality applies even at
+        # the current schema version.
+        r = run_sarathi(["measure"], config_dir=self.config_dir)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+
+        # doctor's stricter config check flags the inconsistency, worded
+        # distinctly from the "stale v1" case (criterion 22: malformed v2,
+        # not stale v1 -- the detail says so explicitly, even though it
+        # names "stale" only to rule it out, so this checks for the
+        # "is stale" verdict phrase specifically, not bare presence of the
+        # word "stale" anywhere in the text).
+        check = sarathi.check_config(self.config_dir)
+        self.assertEqual(check["status"], "failed")
+        self.assertIn("invoker", check["detail"])
+        self.assertIn("malformed", check["detail"])
+        self.assertNotIn("is stale", check["detail"])
+
+
+class TestInitReusableProofs(TempDirCase):
+    """Criterion 13/14 regression: slug(), check_session_slug_roundtrip(),
+    check_output_writable(), and their newly-extracted pure cores remain
+    callable with v0.1-compatible signatures/behavior, since `init`'s
+    proofs depend on reusing them as-is rather than reimplementing (rule
+    3)."""
+
+    def test_slug_and_doctor_checks_reusable_by_init(self):
+        proj = self.build_project(name="proj-a")
+        out_path = os.path.join(self.tmp, "facts.json")
+        write_config(self.config_dir, [self.projects_root], out_path)
+
+        # slug() -- unchanged pure function.
+        self.assertEqual(sarathi.slug(proj), re.sub(r"[^A-Za-z0-9]", "-", proj))
+
+        # check_session_slug_roundtrip(config_dir) -- v0.1 signature, same
+        # dict shape (name/status/detail), matches the just-added session.
+        roundtrip = sarathi.check_session_slug_roundtrip(self.config_dir)
+        self.assertEqual(roundtrip["name"], "session_slug_roundtrip")
+        self.assertEqual(roundtrip["status"], "ok")
+
+        # check_output_writable(config_dir) -- v0.1 signature, same shape.
+        writable = sarathi.check_output_writable(self.config_dir)
+        self.assertEqual(writable["name"], "output_writable")
+        self.assertEqual(writable["status"], "ok")
+
+        # The new pure cores init calls pre-config, proven to agree with
+        # the doctor-check wrappers built on top of them.
+        self.assertTrue(sarathi.path_is_writable(out_path))
+        proof = sarathi.slug_roundtrip_status(self.config_dir, [proj])
+        self.assertEqual(proof["status"], "ok")
+
+
 if __name__ == "__main__":
     unittest.main()
