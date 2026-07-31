@@ -15,17 +15,38 @@ Sarathi is a four-stage loop:
 4. **Realign** — your answer becomes a dated decision ("parked, deliberately"), so the
    tool stops flagging what you already ruled on and gets quieter over time.
 
-**Current version: v0.1 — stage 1 only** (`measure` + `doctor`). Interpretation, steering,
-and realignment are on the roadmap.
+**Current version: v0.2 — measure + doctor, shipped as an installable Claude Code plugin,**
+**plus a cited-interpretation report skill.** Steering and realignment are on the roadmap.
 
 ## Requirements
 
 - Python 3.8+ (standard library only — no dependencies)
 - `git` on PATH
 
-## Quick start
+## Install as a Claude Code plugin (recommended)
 
-Create `<config-dir>/sarathi/config.json`, where `<config-dir>` is `$CLAUDE_CONFIG_DIR`
+```
+/plugin marketplace add Priyadarshiswain/sarathi
+/plugin install sarathi
+```
+
+This installs two skills, `/sarathi:doctor` and `/sarathi:report`. `/sarathi:doctor`
+self-heals a missing or stale config on first use — it walks you through setup, proving
+every answer (Python interpreter, project-root discovery, output-path writability) before
+writing anything — so there is no config file to hand-write. Once it reports healthy, run
+`/sarathi:report` to get a cited interpretation of your projects.
+
+`/plugin marketplace add` and `/plugin install` are Claude Code's own operations and do
+reach the network (GitHub) to fetch the marketplace and plugin contents — that access
+belongs to Claude Code's plugin infrastructure, not to Sarathi. Once installed, `sarathi.py`
+itself still makes zero network calls, exactly as described below: "no network, ever" is a
+claim about the tool, not about the one-time install step.
+
+## Quick start (bare clone, no plugin)
+
+Cloning the repo and running the script directly keeps working exactly as before — the
+plugin wraps `sarathi.py`, it never replaces this path. Create
+`<config-dir>/sarathi/config.json`, where `<config-dir>` is `$CLAUDE_CONFIG_DIR`
 if set, otherwise `~/.claude`:
 
 ```json
@@ -66,17 +87,29 @@ computed against (defaults to today); same project trees + same date → byte-id
 
 ## Uninstall
 
-Sarathi's footprint is deliberately small — three paths, nothing else:
+If you installed the plugin, remove it first:
+
+```
+/plugin uninstall sarathi
+```
+
+This removes the installed `sarathi:doctor` and `sarathi:report` skills and unregisters
+the plugin from Claude Code. It is **not** the same operation as the manual cleanup below —
+uninstalling the plugin never touches your config or your fact-sheet output, on purpose,
+the same way `doctor`/`report` never write outside their documented files. If you also want
+to remove those, or if you only ever used the bare-clone path, Sarathi's remaining
+footprint is deliberately small — three paths, nothing else:
 
 ```bash
-rm -rf <clone-dir>             # the code (wherever you cloned this repo)
+rm -rf <clone-dir>             # the code (wherever you cloned this repo), if you cloned it
 rm -rf <config-dir>/sarathi    # config; <config-dir> is $CLAUDE_CONFIG_DIR or ~/.claude
 rm <output-path>               # the fact sheet, at the output_path you set in config.json
 ```
 
 That's a complete removal. Sarathi writes no caches, no state in your project
-directories, nothing outside the paths above — and it never talks to the network, so
-there is no account or remote data to clean up.
+directories, nothing outside the paths above — and `sarathi.py` itself never talks to the
+network, so there is no account or remote data to clean up (the plugin install step is the
+one exception, and it's Claude Code's own network access, not Sarathi's — see above).
 
 ## Acknowledgements
 

@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-marketplace.json",
+  "name": "sarathi",
+  "owner": {
+    "name": "Priyadarshiswain",
+    "url": "https://github.com/Priyadarshiswain"
+  },
+  "description": "Sarathi — the charioteer for your side projects.",
+  "plugins": [
+    {
+      "name": "sarathi",
+      "source": "./",
+      "description": "Deterministic measurement of all your projects plus cited LLM interpretation: stalls, drift, and dormant work surfaced with the fact rows to prove it.",
+      "category": "productivity"
+    }
+  ]
+}
