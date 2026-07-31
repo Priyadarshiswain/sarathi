@@ -1,0 +1,18 @@
+# Story documents are working artifacts, not shipped product — kept out of git
+# per the project's story-driven workflow.
+docs/stories/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+.venv/
+venv/
+
+# OS
+.DS_Store
+
+# Local Sarathi output (fact sheets, doctor reports) — never committed
+*.sarathi.json
+sarathi-facts.json
