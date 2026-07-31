@@ -29,6 +29,7 @@ from fixtures import (  # noqa: E402
     SARATHI_PATH,
     git_commit_all,
     init_git_repo,
+    make_decision_file,
     make_memory_file,
     make_session_file,
     run_sarathi,
@@ -595,7 +596,7 @@ class TestPluginManifests(unittest.TestCase):
         with open(path, encoding="utf-8") as fh:
             data = json.load(fh)
         self.assertEqual(data["name"], "sarathi")
-        self.assertEqual(data["version"], "0.2.0")
+        self.assertEqual(data["version"], "0.3.0")
 
     def test_marketplace_json_valid(self):
         plugin_path = os.path.join(REPO_ROOT, ".claude-plugin", "plugin.json")
@@ -839,6 +840,411 @@ class TestInitReusableProofs(TempDirCase):
         self.assertTrue(sarathi.path_is_writable(out_path))
         proof = sarathi.slug_roundtrip_status(self.config_dir, [proj])
         self.assertEqual(proof["status"], "ok")
+
+
+# ----------------------------------------------------------------------------
+# SAR-03 additions below: decision-file parsing, ruled_flags/ruled,
+# verdict-aware expiry, the `slug` field, and steer_candidates. Everything
+# above this line is SAR-01's and SAR-02's original suite, re-run unmodified
+# as regression coverage (§8/§12), with one necessary exception: the version
+# literal in TestPluginManifests.test_plugin_json_valid, which this story's
+# own mandated 0.2.0 -> 0.3.0 plugin.json bump requires updating (documented
+# in the coder's handoff) -- the same kind of one-line bump SAR-02 itself
+# introduced for the 0.1.0 -> 0.2.0 transition.
+# ----------------------------------------------------------------------------
+class TestDecisionParsing(TempDirCase):
+    """Criteria 1-6: parse_decision_file() / the decisions subsection built
+    by measure_project(), exercised via direct (non-subprocess) calls for
+    speed and precise control over the fixture."""
+
+    def test_decision_file_parses_valid(self):
+        root = self.build_project(name="proj", add_memory=False)
+        make_decision_file(
+            self.config_dir, root, "sarathi-decision-2026-08-01.md",
+            verdict="parked", decided="2026-08-01", description="waiting on X",
+        )
+        entry = sarathi.measure_project(root, self.config_dir, date.today())
+        self.assertEqual(entry["decisions"]["status"], "ok")
+        self.assertEqual(len(entry["decisions"]["entries"]), 1)
+        d = entry["decisions"]["entries"][0]
+        self.assertEqual(d["verdict"], "parked")
+        self.assertEqual(d["decided"], "2026-08-01")
+        self.assertEqual(d["source"], "sarathi-decision-2026-08-01.md")
+
+    def test_decisions_empty_when_no_matching_files(self):
+        root = self.build_project(name="proj")
+        entry = sarathi.measure_project(root, self.config_dir, date.today())
+        self.assertEqual(entry["decisions"], {"status": "empty", "reason": None, "entries": []})
+
+    def test_decision_file_bad_verdict_fails(self):
+        root = self.build_project(name="proj", add_memory=False)
+        make_decision_file(
+            self.config_dir, root, "sarathi-decision-2026-08-01.md",
+            verdict="maybe-later", decided="2026-08-01",
+        )
+        entry = sarathi.measure_project(root, self.config_dir, date.today())
+        self.assertEqual(entry["decisions"]["status"], "failed")
+        self.assertIn("sarathi-decision-2026-08-01.md", entry["decisions"]["reason"])
+        self.assertEqual(entry["decisions"]["entries"], [])
+
+    def test_decision_file_bad_date_fails(self):
+        root = self.build_project(name="proj", add_memory=False)
+        make_decision_file(
+            self.config_dir, root, "sarathi-decision-2026-08-01.md",
+            verdict="parked", decided="not-a-real-date",
+        )
+        entry = sarathi.measure_project(root, self.config_dir, date.today())
+        self.assertEqual(entry["decisions"]["status"], "failed")
+        self.assertEqual(entry["decisions"]["entries"], [])
+
+    def test_decision_file_missing_verdict_fails(self):
+        root = self.build_project(name="proj", add_memory=False)
+        make_decision_file(
+            self.config_dir, root, "sarathi-decision-2026-08-01.md",
+            verdict=None, decided="2026-08-01",
+        )
+        entry = sarathi.measure_project(root, self.config_dir, date.today())
+        self.assertEqual(entry["decisions"]["status"], "failed")
+        self.assertEqual(entry["decisions"]["entries"], [])
+
+    def test_decision_partial_failure_shape(self):
+        root = self.build_project(name="proj", add_memory=False)
+        make_decision_file(
+            self.config_dir, root, "sarathi-decision-2026-08-01.md",
+            verdict="parked", decided="2026-08-01",
+        )
+        make_decision_file(
+            self.config_dir, root, "sarathi-decision-2026-08-02.md",
+            verdict="bogus-verdict", decided="2026-08-02",
+        )
+        entry = sarathi.measure_project(root, self.config_dir, date.today())
+        self.assertEqual(entry["decisions"]["status"], "ok")
+        self.assertIn("sarathi-decision-2026-08-02.md", entry["decisions"]["reason"])
+        self.assertEqual(len(entry["decisions"]["entries"]), 1)
+        self.assertEqual(entry["decisions"]["entries"][0]["verdict"], "parked")
+
+    def test_non_matching_filename_stays_regular_memory(self):
+        root = self.build_project(name="proj", add_memory=False)
+        # Filename does NOT match the decision pattern, even though its
+        # frontmatter content looks decision-like -- the filename pattern,
+        # not frontmatter content, is what reserves a file as a decision.
+        make_memory_file(
+            self.config_dir, root, "not-a-decision.md",
+            {"name": "not-a-decision", "type": "sarathi-decision",
+             "verdict": "parked", "decided": "2026-08-01"},
+        )
+        entry = sarathi.measure_project(root, self.config_dir, date.today())
+        self.assertEqual(entry["decisions"], {"status": "empty", "reason": None, "entries": []})
+        self.assertEqual(entry["memory"]["status"], "ok")
+        self.assertEqual(len(entry["memory"]["entries"]), 1)
+
+    def test_decision_file_excluded_from_memory_entries(self):
+        root = self.build_project(name="proj", add_memory=True)  # regular note.md
+        make_decision_file(
+            self.config_dir, root, "sarathi-decision-2026-08-01.md",
+            verdict="parked", decided="2026-08-01",
+        )
+        entry = sarathi.measure_project(root, self.config_dir, date.today())
+        memory_names = [e["name"] for e in entry["memory"]["entries"]]
+        self.assertNotIn("sarathi-decision-2026-08-01", memory_names)
+        self.assertEqual(len(entry["memory"]["entries"]), 1)
+        self.assertEqual(len(entry["decisions"]["entries"]), 1)
+
+    def test_decision_filename_collision_gets_suffix(self):
+        root = self.build_project(name="proj", add_memory=False)
+        make_decision_file(
+            self.config_dir, root, "sarathi-decision-2026-08-01.md",
+            verdict="parked", decided="2026-08-01", description="first",
+        )
+        make_decision_file(
+            self.config_dir, root, "sarathi-decision-2026-08-01-2.md",
+            verdict="dead", decided="2026-08-01", description="second",
+        )
+        entry = sarathi.measure_project(root, self.config_dir, date.today())
+        self.assertEqual(entry["decisions"]["status"], "ok")
+        sources = {d["source"] for d in entry["decisions"]["entries"]}
+        self.assertEqual(
+            sources, {"sarathi-decision-2026-08-01.md", "sarathi-decision-2026-08-01-2.md"},
+        )
+        self.assertEqual(len(entry["decisions"]["entries"]), 2)
+
+
+class TestRuledFlagsAndStaleness(TempDirCase):
+    """Criteria 7-10: ruled_flags computation and the strictly-after
+    staleness semantics. Uses "stalled mid-flight" (git commit age + dirty
+    count) rather than "dormant" to construct flags, since it doesn't
+    depend on the actual filesystem mtimes build_project() writes at real
+    "now" -- avoiding the need to backdate file mtimes for a deterministic
+    fixture."""
+
+    def test_ruled_flags_populated_for_unexpired_decision(self):
+        as_of = date.today()
+        commit_date = as_of - timedelta(days=20)
+        root = self.build_project(
+            name="stalled-proj", commit_date=commit_date.isoformat(), n_uncommitted=5,
+            add_session=False,
+        )
+        make_decision_file(
+            self.config_dir, root, f"sarathi-decision-{as_of.isoformat()}.md",
+            verdict="parked", decided=as_of.isoformat(),
+        )
+        entry = sarathi.measure_project(root, self.config_dir, as_of)
+        self.assertIn("stalled mid-flight", entry["flags"])
+        self.assertEqual(len(entry["ruled_flags"]), 1)
+        rf = entry["ruled_flags"][0]
+        self.assertEqual(rf["flag"], "stalled mid-flight")
+        self.assertEqual(rf["verdict"], "parked")
+        self.assertEqual(rf["decided"], as_of.isoformat())
+        # Raw flags is never mutated by ruling.
+        self.assertEqual(entry["flags"], ["stalled mid-flight"])
+
+    def test_ruled_flags_empty_when_decision_expired(self):
+        as_of = date.today()
+        commit_date = as_of - timedelta(days=20)
+        decided = (as_of - timedelta(days=25)).isoformat()
+        root = self.build_project(
+            name="stalled-proj2", commit_date=commit_date.isoformat(), n_uncommitted=5,
+        )
+        make_decision_file(
+            self.config_dir, root, f"sarathi-decision-{decided}.md",
+            verdict="parked", decided=decided,
+        )
+        entry = sarathi.measure_project(root, self.config_dir, as_of)
+        self.assertTrue(entry["decisions"]["entries"][0]["expired"])
+        self.assertEqual(entry["ruled_flags"], [])
+        self.assertIn("stalled mid-flight", entry["flags"])
+
+    def test_decision_not_expired_by_same_day_session(self):
+        as_of = date.today()
+        root = self.build_project(name="session-proj", with_git=False, add_memory=False)
+        make_decision_file(
+            self.config_dir, root, f"sarathi-decision-{as_of.isoformat()}.md",
+            verdict="keep-watching", decided=as_of.isoformat(),
+        )
+        entry = sarathi.measure_project(root, self.config_dir, as_of)
+        self.assertFalse(entry["decisions"]["entries"][0]["expired"])
+
+    def test_ruled_flags_empty_with_no_decisions(self):
+        as_of = date.today()
+        commit_date = as_of - timedelta(days=20)
+        root = self.build_project(
+            name="stalled-proj3", commit_date=commit_date.isoformat(), n_uncommitted=5,
+        )
+        entry = sarathi.measure_project(root, self.config_dir, as_of)
+        self.assertEqual(entry["ruled_flags"], [])
+        self.assertIn("stalled mid-flight", entry["flags"])
+
+
+class TestOrphanDecisions(TempDirCase):
+    """Criterion 11: orphan `decisions`/`ruled`, via collect_orphans()
+    directly (same pattern as the existing TestOrphans class)."""
+
+    def test_orphan_ruled_true_for_unexpired_decision(self):
+        as_of = date.today()
+        deleted_child = os.path.join(self.projects_root, "gone-project")
+        deleted_slug = sarathi.slug(deleted_child)
+        make_decision_file(
+            self.config_dir, deleted_slug, f"sarathi-decision-{as_of.isoformat()}.md",
+            verdict="dead", decided=as_of.isoformat(), is_slug=True,
+        )
+        _roots, root_children = sarathi.build_roots_section([self.projects_root])
+        orphans = sarathi.collect_orphans(
+            self.config_dir, [self.projects_root], root_children, as_of)
+        entry = next(e for e in orphans["entries"] if e["slug"] == deleted_slug)
+        self.assertTrue(entry["ruled"])
+        self.assertEqual(len(entry["decisions"]["entries"]), 1)
+        self.assertFalse(entry["decisions"]["entries"][0]["expired"])
+
+    def test_orphan_ruled_false_after_new_memory_activity(self):
+        as_of = date.today()
+        decided = (as_of - timedelta(days=5)).isoformat()
+        deleted_child = os.path.join(self.projects_root, "gone-project-2")
+        deleted_slug = sarathi.slug(deleted_child)
+        make_decision_file(
+            self.config_dir, deleted_slug, f"sarathi-decision-{decided}.md",
+            verdict="dead", decided=decided, is_slug=True,
+        )
+        # A later, non-decision memory note -- "someone came back to this."
+        make_memory_file(
+            self.config_dir, deleted_slug, "later-note.md",
+            {"name": "later note", "description": "new info surfaced", "type": "project",
+             "modified": as_of.isoformat()},
+            is_slug=True,
+        )
+        _roots, root_children = sarathi.build_roots_section([self.projects_root])
+        orphans = sarathi.collect_orphans(
+            self.config_dir, [self.projects_root], root_children, as_of)
+        entry = next(e for e in orphans["entries"] if e["slug"] == deleted_slug)
+        self.assertFalse(entry["ruled"])
+        self.assertTrue(entry["decisions"]["entries"][0]["expired"])
+
+
+class TestProjectSlugField(TempDirCase):
+    """Criterion 12: facts.projects.<key>.slug matches the internal
+    slug(root) already used to resolve sessions/memory."""
+
+    def test_project_entry_carries_slug(self):
+        root = self.build_project(name="proj")
+        entry = sarathi.measure_project(root, self.config_dir, date.today())
+        self.assertEqual(entry["slug"], sarathi.slug(root))
+
+
+class TestSteerCandidates(unittest.TestCase):
+    """Criteria 13-16: compute_steer_candidates() as a pure function of
+    already-built projects/orphans dicts -- avoids depending on real
+    filesystem mtimes (which build_project() always sets to "now") to
+    construct precise days_stalled values."""
+
+    @staticmethod
+    def _project(days_stalled, flags, ruled_flags=None, slug_val=None, status="ok"):
+        return {
+            "status": status,
+            "slug": slug_val or f"slug-{days_stalled}",
+            "flags": flags,
+            "ruled_flags": ruled_flags or [],
+            "git": {"last_commit": None},
+            "files": {"newest": None},
+            "sessions": {"last_session": None},
+            # last_commit/newest/last_session all None -> compute_days_stalled
+            # would return the sentinel; override days_stalled precisely by
+            # setting last_commit to an as_of-relative date instead.
+        }
+
+    def test_steer_candidates_ranked_longest_stalled_first(self):
+        as_of = date(2026, 8, 1)
+
+        def proj(days):
+            p = self._project(days, ["dormant"])
+            p["git"]["last_commit"] = (as_of - timedelta(days=days)).isoformat()
+            return p
+
+        projects = {"near": proj(10), "far": proj(90)}
+        candidates = sarathi.compute_steer_candidates(projects, [], as_of)
+        self.assertEqual([c["key"] for c in candidates], ["far", "near"])
+        self.assertEqual(candidates[0]["days_stalled"], 90)
+        self.assertEqual(candidates[1]["days_stalled"], 10)
+
+    def test_fully_ruled_project_excluded_from_candidates(self):
+        as_of = date(2026, 8, 1)
+        ruled_flags = [{"flag": "dormant", "verdict": "parked",
+                         "decided": "2026-08-01", "source": "x.md"}]
+        projects = {"ruled-proj": self._project(90, ["dormant"], ruled_flags=ruled_flags)}
+        candidates = sarathi.compute_steer_candidates(projects, [], as_of)
+        self.assertEqual(candidates, [])
+
+    def test_orphan_candidate_uses_sentinel_days(self):
+        as_of = date(2026, 8, 1)
+        orphan_entries = [{"slug": "orphan-slug", "ruled": False}]
+        candidates = sarathi.compute_steer_candidates({}, orphan_entries, as_of)
+        self.assertEqual(len(candidates), 1)
+        self.assertEqual(candidates[0]["kind"], "orphan")
+        self.assertEqual(
+            candidates[0]["days_stalled"], sarathi.THRESHOLDS["UNREACHABLE_DAYS_SENTINEL"],
+        )
+
+    def test_steer_candidates_empty_when_nothing_unruled(self):
+        as_of = date(2026, 8, 1)
+        projects = {"p": self._project(0, [])}
+        orphan_entries = [{"slug": "o", "ruled": True}]
+        candidates = sarathi.compute_steer_candidates(projects, orphan_entries, as_of)
+        self.assertEqual(candidates, [])
+
+
+class TestSchemaAndBackwardCompat(TempDirCase):
+    """Criteria 17-19: determinism with the new fields, always-present
+    empty-by-default shape, and the schema_version bump."""
+
+    def test_determinism_hash_with_decision_fields(self):
+        root = self.build_project(commit_date=(date.today() - timedelta(days=5)).isoformat())
+        as_of_str = date.today().isoformat()
+        make_decision_file(
+            self.config_dir, root, f"sarathi-decision-{as_of_str}.md",
+            verdict="parked", decided=as_of_str,
+        )
+        out_path = os.path.join(self.tmp, "facts.json")
+        write_config(self.config_dir, [self.projects_root], out_path)
+
+        r1 = run_sarathi(["measure", "--as-of", as_of_str], config_dir=self.config_dir)
+        self.assertEqual(r1.returncode, 0, r1.stderr)
+        with open(out_path) as fh:
+            facts1 = json.load(fh)["facts"]
+
+        r2 = run_sarathi(["measure", "--as-of", as_of_str], config_dir=self.config_dir)
+        self.assertEqual(r2.returncode, 0, r2.stderr)
+        with open(out_path) as fh:
+            facts2 = json.load(fh)["facts"]
+
+        h1 = hashlib.sha256(json.dumps(facts1, sort_keys=True).encode()).hexdigest()
+        h2 = hashlib.sha256(json.dumps(facts2, sort_keys=True).encode()).hexdigest()
+        self.assertEqual(h1, h2)
+        # Sanity: the new fields are actually present in the hashed subtree.
+        self.assertIn("steer_candidates", facts1)
+        self.assertIn("decisions", facts1["projects"]["alpha"])
+        self.assertIn("ruled_flags", facts1["projects"]["alpha"])
+
+    def test_new_fields_always_present_and_empty_by_default(self):
+        self.build_project(name="plain-proj")
+        out_path = os.path.join(self.tmp, "facts.json")
+        write_config(self.config_dir, [self.projects_root], out_path)
+        r = run_sarathi(["measure"], config_dir=self.config_dir)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        with open(out_path) as fh:
+            facts = json.load(fh)["facts"]
+        entry = facts["projects"]["plain-proj"]
+        self.assertEqual(entry["decisions"], {"status": "empty", "reason": None, "entries": []})
+        self.assertEqual(entry["ruled_flags"], [])
+        self.assertIn("slug", entry)
+        self.assertEqual(entry["slug"], sarathi.slug(
+            os.path.join(self.projects_root, "plain-proj")))
+        self.assertIn("steer_candidates", facts)
+        self.assertEqual(facts["steer_candidates"], [])
+
+    def test_fact_sheet_schema_version_is_2(self):
+        self.build_project(name="p")
+        out_path = os.path.join(self.tmp, "facts.json")
+        write_config(self.config_dir, [self.projects_root], out_path)
+        r = run_sarathi(["measure"], config_dir=self.config_dir)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        with open(out_path) as fh:
+            output = json.load(fh)
+        self.assertEqual(output["schema_version"], 2)
+
+
+class TestVerdictAwareExpiry(unittest.TestCase):
+    """Criteria 34-36 (reviewer ruling, 2026-08-01): decision_is_expired()
+    as a pure function, isolating the active-next grace-window rule from
+    the ordinary activity-based staleness check."""
+
+    def test_active_next_expires_after_grace_without_activity(self):
+        as_of = date(2026, 8, 1)
+        grace = sarathi.THRESHOLDS["ACTIVE_NEXT_GRACE_DAYS"]
+        decided = (as_of - timedelta(days=grace + 1)).isoformat()
+        decision = {"verdict": "active-next", "decided": decided}
+        self.assertTrue(sarathi.decision_is_expired(decision, [], as_of))
+
+    def test_active_next_fresh_within_grace_not_expired(self):
+        as_of = date(2026, 8, 1)
+        grace = sarathi.THRESHOLDS["ACTIVE_NEXT_GRACE_DAYS"]
+        decided = (as_of - timedelta(days=grace - 1)).isoformat()
+        decision = {"verdict": "active-next", "decided": decided}
+        self.assertFalse(sarathi.decision_is_expired(decision, [], as_of))
+
+    def test_active_next_activity_expiry_still_applies(self):
+        as_of = date(2026, 8, 1)
+        decided = (as_of - timedelta(days=3)).isoformat()  # well within the grace window
+        activity_after = (as_of - timedelta(days=1)).isoformat()  # strictly after decided
+        decision = {"verdict": "active-next", "decided": decided}
+        self.assertTrue(sarathi.decision_is_expired(decision, [activity_after], as_of))
+
+    def test_other_verdicts_never_time_expire(self):
+        as_of = date(2026, 8, 1)
+        decided = (as_of - timedelta(days=400)).isoformat()
+        for verdict in ("parked", "dead", "keep-watching"):
+            decision = {"verdict": verdict, "decided": decided}
+            self.assertFalse(
+                sarathi.decision_is_expired(decision, [], as_of),
+                f"{verdict} should never time-expire",
+            )
 
 
 if __name__ == "__main__":
