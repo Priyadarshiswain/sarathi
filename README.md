@@ -64,6 +64,20 @@ computed against (defaults to today); same project trees + same date → byte-id
   "couldn't look" is never dressed up as "nothing found".
 - Reads only local files; writes only its own output. No network, no telemetry, ever.
 
+## Uninstall
+
+Sarathi's footprint is deliberately small — three paths, nothing else:
+
+```bash
+rm -rf <clone-dir>             # the code (wherever you cloned this repo)
+rm -rf <config-dir>/sarathi    # config; <config-dir> is $CLAUDE_CONFIG_DIR or ~/.claude
+rm <output-path>               # the fact sheet, at the output_path you set in config.json
+```
+
+That's a complete removal. Sarathi writes no caches, no state in your project
+directories, nothing outside the paths above — and it never talks to the network, so
+there is no account or remote data to clean up.
+
 ## Acknowledgements
 
 Substantial portions of this codebase were written and reviewed with
