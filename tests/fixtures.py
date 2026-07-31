@@ -117,6 +117,31 @@ def make_memory_file(config_dir, project_root_or_slug, filename, frontmatter,
     return path
 
 
+def make_decision_file(config_dir, project_root_or_slug, filename, verdict, decided,
+                        description="", body="", is_slug=False, extra_frontmatter=None):
+    """Write a decision file in the exact §6-pinned format (SAR-03) under
+    <config_dir>/projects/<slug>/memory/<filename>. Pass `verdict=None` or
+    `decided=None` to omit that frontmatter key entirely (for malformed-
+    file test fixtures) rather than writing a literal 'None'."""
+    slug_val = project_root_or_slug if is_slug else sarathi.slug(project_root_or_slug)
+    mdir = os.path.join(config_dir, "projects", slug_val, "memory")
+    os.makedirs(mdir, exist_ok=True)
+    name = filename[:-3] if filename.endswith(".md") else filename
+    fm = {"name": name, "type": "sarathi-decision", "description": description}
+    if verdict is not None:
+        fm["verdict"] = verdict
+    if decided is not None:
+        fm["decided"] = decided
+    if extra_frontmatter:
+        fm.update(extra_frontmatter)
+    fm_lines = "\n".join(f'{k}: "{v}"' for k, v in fm.items())
+    text = f"---\n{fm_lines}\n---\n{body}\n"
+    path = os.path.join(mdir, filename)
+    with open(path, "w", encoding="utf-8") as fh:
+        fh.write(text)
+    return path
+
+
 def run_sarathi(args, config_dir=None, path_override=None, extra_env=None, cwd=None):
     """Invoke sarathi.py as a subprocess (the real CLI entry point), with a
     fully-controlled environment. config_dir sets CLAUDE_CONFIG_DIR;

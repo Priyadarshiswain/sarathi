@@ -15,8 +15,9 @@ Sarathi is a four-stage loop:
 4. **Realign** — your answer becomes a dated decision ("parked, deliberately"), so the
    tool stops flagging what you already ruled on and gets quieter over time.
 
-**Current version: v0.2 — measure + doctor, shipped as an installable Claude Code plugin,**
-**plus a cited-interpretation report skill.** Steering and realignment are on the roadmap.
+**Current version: v0.3 — all four stages now ship: measure + doctor, a cited-interpretation**
+**report skill (moving / losing steam / forgotten / ruled), and steer + realign — your answers**
+**become dated decision files that quiet the report on every later run.**
 
 ## Requirements
 
@@ -83,7 +84,10 @@ computed against (defaults to today); same project trees + same date → byte-id
 - Deterministic given the config — logic is universal, machine variance lives in config.
 - Fail loudly, never emptily — every section reports `ok` / `failed: reason` / `empty`;
   "couldn't look" is never dressed up as "nothing found".
-- Reads only local files; writes only its own output. No network, no telemetry, ever.
+- Reads only local files; writes only its own output, plus (from v0.3) the decision files
+  `/sarathi:report`'s realign step writes on your explicit, answered say-so — never silent,
+  always shown to you verbatim with the exact path, never anything else. No network, no
+  telemetry, ever.
 
 ## Uninstall
 
@@ -95,16 +99,24 @@ If you installed the plugin, remove it first:
 
 This removes the installed `sarathi:doctor` and `sarathi:report` skills and unregisters
 the plugin from Claude Code. It is **not** the same operation as the manual cleanup below —
-uninstalling the plugin never touches your config or your fact-sheet output, on purpose,
-the same way `doctor`/`report` never write outside their documented files. If you also want
-to remove those, or if you only ever used the bare-clone path, Sarathi's remaining
-footprint is deliberately small — three paths, nothing else:
+uninstalling the plugin never touches your config, your fact-sheet output, or any decision
+file it wrote, on purpose, the same way `doctor`/`report` never write outside their
+documented files. If you also want to remove those, or if you only ever used the bare-clone
+path, Sarathi's remaining footprint is small and fully accounted for:
 
 ```bash
 rm -rf <clone-dir>             # the code (wherever you cloned this repo), if you cloned it
 rm -rf <config-dir>/sarathi    # config; <config-dir> is $CLAUDE_CONFIG_DIR or ~/.claude
 rm <output-path>               # the fact sheet, at the output_path you set in config.json
 ```
+
+Since v0.3, `/sarathi:report`'s realign step also writes decision files named
+`sarathi-decision-<date>[-N].md` inside the same per-project memory directories Claude Code
+already maintains under `<config-dir>/projects/<slug>/memory/` — the same directories
+`doctor`/`report` were already reading from before v0.3, not a new location Sarathi
+introduced. They're plain markdown, easy to find (`find <config-dir>/projects -name
+'sarathi-decision-*.md'`) and delete by hand if you want a truly clean slate; leaving them is
+also fine — an uninstalled Sarathi simply stops reading them.
 
 That's a complete removal. Sarathi writes no caches, no state in your project
 directories, nothing outside the paths above — and `sarathi.py` itself never talks to the

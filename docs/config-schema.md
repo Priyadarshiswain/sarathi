@@ -155,4 +155,122 @@ and bump `"schema_version"` to `2`.
   count, stalled/dormant/thinking-vs-shipping day windows, etc.) are **not**
   configurable via `config.json` in this version — they live in one named
   constants block near the top of `sarathi.py`. Making them config-driven
-  is a possible future evolution, not part of this schema.
+  is a possible future evolution, not part of this schema. This includes
+  the two constants v0.3 added — `THRESHOLDS["STEER_MAX_QUESTIONS"]` and
+  `THRESHOLDS["ACTIVE_NEXT_GRACE_DAYS"]` (see below) — neither is a
+  `config.json` key.
+
+## Fact-sheet output: `decisions` / `ruled_flags` / `steer_candidates` (schema v2)
+
+This section documents shapes `sarathi measure` *writes* into its output
+fact sheet (the file at `output_path`) — not `config.json` keys. v0.3 adds
+no config keys at all; everything below is output only, added by the
+steer/realign feature (decision memory files, parsed back by `measure`).
+The fact sheet's own `schema_version` bumped `1` → `2` for this addition —
+every new key is additive and always present, never conditionally omitted,
+so a v1-shaped consumer reading only the old keys keeps working.
+
+### Decision memory files (new file type, not config)
+
+Written exclusively by `/sarathi:report`'s realign step, read exclusively
+by `measure`'s decision parser — never written by `sarathi.py` itself.
+Location: `<config-dir>/projects/<slug>/memory/`, the same memory directory
+`measure`'s `memory` subsection already reads. Filename:
+`sarathi-decision-<YYYY-MM-DD>[-N].md`, matching
+`^sarathi-decision-\d{4}-\d{2}-\d{2}(?:-\d+)?\.md$` — any file matching this
+pattern is permanently claimed as a decision file, never reinterpreted as
+an ordinary memory entry even if its contents fail to parse. Required
+frontmatter:
+
+```
+---
+name: sarathi-decision-2026-08-01
+description: "parked — waiting on the tokenomics contract to settle first"
+type: sarathi-decision
+verdict: parked
+decided: 2026-08-01
+---
+
+Optional free-text body, truncated the same length as a regular memory
+description (THRESHOLDS["DESCRIPTION_TRUNCATE_CHARS"]).
+```
+
+`verdict` is one of exactly four values (`VALID_VERDICT_VALUES` in
+`sarathi.py`): `parked` | `active-next` | `dead` | `keep-watching`.
+`decided` is an ISO `YYYY-MM-DD` date. Anything else (missing/unrecognized
+verdict, missing/unparseable `decided`) is a parse failure, surfaced loudly
+in `decisions.status`/`decisions.reason` — never silently dropped.
+
+### `facts.projects.<key>.slug` (new)
+
+Every project entry now carries its own config-dir slug — the same value
+already used internally to resolve that project's `sessions`/`memory`
+subsections (`slug(<absolute project root path>)`), now also exposed so a
+consumer (realign) doesn't have to re-derive it from the display key, which
+is not always a pure function of the path (see "Project-key
+disambiguation" above).
+
+### `facts.projects.<key>.decisions` / `facts.orphans.entries[i].decisions` (new)
+
+Same `status`/`reason`/`entries` subsection shape as `git`/`files`/
+`sessions`/`memory`:
+
+- `"empty"` — no files under that memory directory match the decision
+  filename pattern.
+- `"ok"` — every matching file parsed; `entries` is the parsed list,
+  sorted by `decided`, each carrying `{"verdict", "decided", "reason"
+  (from the frontmatter `description`, truncated), "source" (filename),
+  "expired": bool}`.
+- `"ok"` with a non-null `reason` — a *partial* result: some matching
+  files parsed, some didn't; `reason` names the ones that failed, `entries`
+  holds only the ones that parsed.
+- `"failed"` — every matching file failed to parse; `reason` names why;
+  `entries` is `[]`.
+
+`"expired"` (per entry): `true` iff any of that project's own activity
+signals (`git.last_commit`, `sessions.last_session`, `files.newest`, plus
+the max `date` across that project's own non-decision `memory.entries`) is
+**strictly after** `decided` — not on-or-after, since writing the decision
+file itself touches session-folder activity the same calendar day. For
+orphans (no git/files/sessions at all), only the max-memory-entry-date
+signal applies. **`active-next` additionally expires** once
+`days_since(decided, facts.as_of) > THRESHOLDS["ACTIVE_NEXT_GRACE_DAYS"]`
+even with zero activity — a broken "it's next" promise must not stay
+suppressed forever. The other three verdicts never time-expire; only new
+activity unrules them.
+
+### `facts.projects.<key>.ruled_flags` (new)
+
+A list of `{"flag", "verdict", "decided", "source"}`, one entry per
+currently-in-`flags` flag name covered by the *most recent unexpired*
+decision for that project. `[]` if no unexpired decision exists or the
+project has no flags. **`flags` itself is never mutated** — `ruled_flags`
+is a sibling annotation, always present.
+
+### `facts.orphans.entries[i].ruled` (new)
+
+`true` iff at least one unexpired decision exists for that orphan's memory
+directory.
+
+### `facts.steer_candidates` (new, top-level under `facts`)
+
+A list, `[]` when there is nothing to steer — one entry per project/orphan
+carrying at least one currently-unruled signal:
+
+```json
+{"kind": "project", "key": "tokenomics", "slug": "-Users-alice-Projects-tokenomics",
+ "days_stalled": 45, "unruled_flags": ["dormant"]}
+```
+```json
+{"kind": "orphan", "slug": "-Users-alice-Projects-old-thing",
+ "days_stalled": 1000000, "unruled_flags": []}
+```
+
+`days_stalled` for a project reuses the same "days since most recent of
+last commit / newest file / last session" computation the `dormant` flag
+already uses; for an orphan it is
+`THRESHOLDS["UNREACHABLE_DAYS_SENTINEL"]` (orphans always sort at or near
+the top). The list is sorted by `days_stalled` descending, ties broken by
+`slug` ascending — deterministic. `/sarathi:report`'s steer step reads the
+top `THRESHOLDS["STEER_MAX_QUESTIONS"]` of this list as-is; it never
+re-ranks, filters, or invents a candidate outside it.

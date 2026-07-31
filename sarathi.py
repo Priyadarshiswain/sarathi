@@ -74,6 +74,15 @@ THRESHOLDS = {
     "UNREACHABLE_DAYS_SENTINEL": 10 ** 6,
     # minimum supported Python version, checked by `sarathi doctor`
     "MIN_PYTHON_VERSION": (3, 8),
+    # steer asks at most this many closed questions per report run (SAR-03
+    # §7 — position taken: enough to make real progress every run without
+    # turning a report into an interrogation)
+    "STEER_MAX_QUESTIONS": 2,
+    # an `active-next` decision also time-expires after this many days with
+    # no qualifying activity (SAR-03 reviewer ruling, 2026-08-01) -- a
+    # broken "it's next" promise must not stay suppressed forever just
+    # because nothing happened. The other three verdicts never time-expire.
+    "ACTIVE_NEXT_GRACE_DAYS": 14,
 }
 
 # Directory names skipped while walking a project tree for file stats.
@@ -87,7 +96,10 @@ OPEN_RE = re.compile(
 )
 
 # Fact-sheet output schema version (bumped on breaking output-shape changes).
-SCHEMA_VERSION = 1
+# v0.3 (SAR-03) bumps 1 -> 2: every addition is additive-only (new keys:
+# facts.projects.<key>.slug/decisions/ruled_flags, facts.orphans entries'
+# decisions/ruled, facts.steer_candidates) -- see docs/config-schema.md.
+SCHEMA_VERSION = 2
 # config.json schema version this script expects (bumped on breaking config
 # changes; `sarathi doctor`'s `config` check flags a stale config against
 # this — see load_config()'s docstring for why this is a *stricter*, doctor-
@@ -105,6 +117,17 @@ REQUIRED_CONFIG_KEYS = {"schema_version", "project_roots", "output_path"}
 OPTIONAL_CONFIG_KEYS = {"voice", "invoker"}
 ALLOWED_CONFIG_KEYS = REQUIRED_CONFIG_KEYS | OPTIONAL_CONFIG_KEYS
 VALID_VOICE_VALUES = {"plain", "gen_z"}
+
+# SAR-03: the closed verdict set a decision file's `verdict` frontmatter
+# field must be one of -- anything else is a parse failure (design rule 2).
+VALID_VERDICT_VALUES = {"parked", "active-next", "dead", "keep-watching"}
+
+# SAR-03 §6: the reserved decision-filename pattern. Any file matching this
+# is permanently claimed as a decision file -- never reinterpreted as an
+# ordinary memory entry, even if its contents fail to parse (rule 2). The
+# optional `-<N>` suffix handles a second decision for the same project on
+# the same calendar date.
+DECISION_FILENAME_RE = re.compile(r"^sarathi-decision-\d{4}-\d{2}-\d{2}(?:-\d+)?\.md$")
 
 
 # --------------------------------------------------------------------------
@@ -277,6 +300,23 @@ def scan_files(root):
     return newest, count, had_error
 
 
+def extract_frontmatter(text, keys):
+    """Extract a loose `key: value` frontmatter block bounded by `---`
+    lines, restricted to `keys` (an iterable of allowed field names).
+    Shared by parse_memory_files() and parse_decision_file() — one
+    frontmatter-block parser, not two (SAR-03 §7, design rule 6)."""
+    fm = {}
+    m = re.match(r"^---\n(.*?)\n---", text, re.S)
+    if not m:
+        return fm
+    key_pattern = "|".join(re.escape(k) for k in keys)
+    for line in m.group(1).splitlines():
+        kv = re.match(rf'\s*({key_pattern}):\s*(.+)', line)
+        if kv:
+            fm[kv.group(1)] = kv.group(2).strip().strip('"')
+    return fm
+
+
 def parse_memory_files(mdir, filenames):
     """Parse memory markdown files into fact-sheet entries. Truncation
     lengths and the open-thread regex come from the single constants block
@@ -291,13 +331,7 @@ def parse_memory_files(mdir, filenames):
                 text = fh.read()
         except OSError:
             continue
-        fm = {}
-        m = re.match(r"^---\n(.*?)\n---", text, re.S)
-        if m:
-            for line in m.group(1).splitlines():
-                kv = re.match(r'\s*(name|description|type|modified):\s*(.+)', line)
-                if kv:
-                    fm[kv.group(1)] = kv.group(2).strip().strip('"')
+        fm = extract_frontmatter(text, ("name", "description", "type", "modified"))
         threads = sorted(
             {ln.strip()[:trunc] for ln in text.splitlines()
              if OPEN_RE.search(ln) and not ln.startswith("---")}
@@ -314,6 +348,199 @@ def parse_memory_files(mdir, filenames):
             "threads": threads,
         })
     return entries
+
+
+# --------------------------------------------------------------------------
+# Decision memory files (SAR-03 §6-§7). Written exclusively by the
+# `sarathi:report` skill's realign step (an LLM-driven Write, never this
+# script — rule 3); parsed here for `measure`'s reading side only. Never
+# called by `doctor` or `init`, which don't touch decisions (out of scope,
+# §3).
+# --------------------------------------------------------------------------
+def parse_decision_file(path):
+    """Parse one decision file (§6's pinned format). Returns
+    (decision_dict, None) on success or (None, error_reason) on failure.
+    Never raises — callers turn a `None` into the file's contribution to a
+    `failed`/partial `reason` string (design rule 2).
+
+    decision_dict: {"verdict", "decided" (ISO date string), "reason"
+    (optional human text, truncated exactly like a regular memory
+    description — no new truncation constant, §6), "source" (filename)}.
+    """
+    fname = os.path.basename(path)
+    try:
+        with open(path, encoding="utf-8", errors="replace") as fh:
+            text = fh.read()
+    except OSError as e:
+        return None, f"{fname}: cannot read file: {e}"
+
+    fm = extract_frontmatter(text, ("name", "description", "type", "verdict", "decided"))
+
+    verdict = fm.get("verdict")
+    if verdict not in VALID_VERDICT_VALUES:
+        return None, f"{fname}: invalid or missing verdict: {verdict!r}"
+
+    decided = fm.get("decided")
+    if not decided:
+        return None, f"{fname}: missing 'decided' date"
+    try:
+        date.fromisoformat(decided)
+    except ValueError:
+        return None, f"{fname}: unparseable 'decided' date: {decided!r}"
+
+    desc_trunc = THRESHOLDS["DESCRIPTION_TRUNCATE_CHARS"]
+    reason = fm.get("description", "").replace('\\"', '"')[:desc_trunc]
+
+    return {"verdict": verdict, "decided": decided, "reason": reason, "source": fname}, None
+
+
+def decision_is_stale(decided_iso, activity_isos):
+    """True iff any date in `activity_isos` (skipping `None`s) is
+    *strictly after* `decided_iso`. Strictly-after, not on-or-after, is
+    deliberate (§7): writing the decision file happens inside a live
+    session, which touches that project's session-folder mtime the same
+    calendar day the decision is made -- an on-or-after comparison would
+    mark every decision stale the instant it was written."""
+    decided = date.fromisoformat(decided_iso)
+    for iso in activity_isos:
+        if not iso:
+            continue
+        if date.fromisoformat(iso) > decided:
+            return True
+    return False
+
+
+def decision_is_expired(decision, activity_isos, as_of):
+    """Pure activity-based staleness (decision_is_stale) plus the
+    verdict-aware `active-next` grace-window addition (reviewer ruling,
+    2026-08-01, SAR-03 criteria 34-36): an `active-next` decision is a
+    *promise*, so it also expires once
+    `days_since(decided, as_of) > THRESHOLDS["ACTIVE_NEXT_GRACE_DAYS"]`
+    even with zero activity -- otherwise a broken "it's next" promise would
+    stay suppressed forever. The other three verdicts (`parked`, `dead`,
+    `keep-watching`) never time-expire; only activity can unrule them."""
+    if decision_is_stale(decision["decided"], activity_isos):
+        return True
+    if decision["verdict"] == "active-next":
+        if days_since(decision["decided"], as_of) > THRESHOLDS["ACTIVE_NEXT_GRACE_DAYS"]:
+            return True
+    return False
+
+
+def _list_memory_md_files(mdir):
+    """One os.listdir() pass over a project's/orphan's memory directory,
+    partitioned into decision-named files (DECISION_FILENAME_RE) and
+    everything else -- feeds both measure_memory() and
+    measure_memory_and_decisions() so there is one listing of the
+    directory driving both subsections (§7). Returns (status, reason,
+    other_files, decision_files)."""
+    files, status, reason = list_dir_filtered(mdir, ".md")
+    if status == "failed":
+        return status, reason, [], []
+    decision_files = [f for f in files if DECISION_FILENAME_RE.match(f)]
+    decision_set = set(decision_files)
+    other_files = [f for f in files if f not in decision_set]
+    return status, reason, other_files, decision_files
+
+
+def build_memory_subsection(mdir, list_status, list_reason, other_files):
+    """The `memory` subsection, built from the non-decision files already
+    listed by _list_memory_md_files() -- MEMORY.md is excluded exactly as
+    it always has been; decision-named files are excluded the same way
+    (criteria 4-5)."""
+    if list_status == "failed":
+        return {"status": "failed", "reason": list_reason, "entries": []}
+    regular_files = [f for f in other_files if f != "MEMORY.md"]
+    if not regular_files:
+        return {"status": "empty", "reason": None, "entries": []}
+    entries = parse_memory_files(mdir, regular_files)
+    return {"status": "ok", "reason": None, "entries": entries}
+
+
+def max_memory_date(memory_entries):
+    """The most recent `date` across a set of already-parsed (non-decision)
+    memory entries, or None if there are none/none dated -- one of the
+    activity signals decision staleness checks against (§7: "a new,
+    non-decision memory note added after the decision... counts as
+    'someone came back to this'")."""
+    dates = [e["date"] for e in memory_entries if e.get("date")]
+    return max(dates) if dates else None
+
+
+def build_decisions_subsection(mdir, list_status, list_reason, decision_files,
+                                activity_isos, as_of):
+    """The `decisions` subsection (§7): every file matching
+    DECISION_FILENAME_RE, parsed, each entry annotated `"expired"`. Status
+    follows the same ok/empty/failed/partial-ok convention already used by
+    measure_files() for a partial scan (rule 6, reused not reinvented)."""
+    if list_status == "failed":
+        return {"status": "failed", "reason": list_reason, "entries": []}
+    if not decision_files:
+        return {"status": "empty", "reason": None, "entries": []}
+    parsed = []
+    failures = []
+    for fname in sorted(decision_files):
+        decision, err = parse_decision_file(os.path.join(mdir, fname))
+        if decision is None:
+            failures.append(err)
+        else:
+            decision["expired"] = decision_is_expired(decision, activity_isos, as_of)
+            parsed.append(decision)
+    parsed.sort(key=lambda d: d["decided"])
+    if not parsed:
+        return {"status": "failed", "reason": "; ".join(failures), "entries": []}
+    if failures:
+        reason = (
+            f"partial: {len(failures)} of {len(decision_files)} decision-named files "
+            f"failed to parse: {'; '.join(failures)}"
+        )
+        return {"status": "ok", "reason": reason, "entries": parsed}
+    return {"status": "ok", "reason": None, "entries": parsed}
+
+
+def measure_memory(config_dir, slug_val):
+    """The `memory` subsection alone, standalone signature preserved
+    exactly as v0.1/v0.2 left it -- `sarathi doctor`'s
+    check_memory_parseable() calls this directly and never touches
+    decisions (out of scope, §3)."""
+    mdir = os.path.join(config_dir, "projects", slug_val, "memory")
+    status, reason, other_files, _decision_files = _list_memory_md_files(mdir)
+    return build_memory_subsection(mdir, status, reason, other_files)
+
+
+def measure_memory_and_decisions(config_dir, slug_val, as_of, base_activity_isos):
+    """Used by measure_project()/collect_orphans(): one os.listdir() pass
+    over the memory directory feeds both the `memory` and `decisions`
+    subsections. `base_activity_isos` are the caller's already-computed
+    activity signals (git.last_commit/sessions.last_session/files.newest
+    for a project; [] for an orphan, which has none of those); the max
+    date across this project's own non-decision memory entries is added
+    here, since that requires memory_sub to already be built (§7)."""
+    mdir = os.path.join(config_dir, "projects", slug_val, "memory")
+    status, reason, other_files, decision_files = _list_memory_md_files(mdir)
+    memory_sub = build_memory_subsection(mdir, status, reason, other_files)
+    activity_isos = list(base_activity_isos) + [max_memory_date(memory_sub["entries"])]
+    decisions_sub = build_decisions_subsection(
+        mdir, status, reason, decision_files, activity_isos, as_of)
+    return memory_sub, decisions_sub
+
+
+def compute_ruled_flags(flags, decisions_entries):
+    """`ruled_flags` (§7): one entry per currently-in-`flags` flag name,
+    covered by the *most recent unexpired* decision for that project (a
+    decision, whichever verdict, covers every flag the project currently
+    carries -- the verdict is about the project, not an individual flag).
+    `[]` if no unexpired decision exists or the project has no flags —
+    always present, never omitted."""
+    unexpired = [d for d in decisions_entries if not d["expired"]]
+    if not flags or not unexpired:
+        return []
+    latest = max(unexpired, key=lambda d: d["decided"])
+    return [
+        {"flag": f, "verdict": latest["verdict"], "decided": latest["decided"],
+         "source": latest["source"]}
+        for f in flags
+    ]
 
 
 # --------------------------------------------------------------------------
@@ -438,16 +665,17 @@ def measure_sessions(config_dir, slug_val):
     return {"status": "ok", "reason": None, "count": len(files), "last_session": last_session}
 
 
-def measure_memory(config_dir, slug_val):
-    mdir = os.path.join(config_dir, "projects", slug_val, "memory")
-    files, status, reason = list_dir_filtered(mdir, ".md")
-    if status == "failed":
-        return {"status": "failed", "reason": reason, "entries": []}
-    files = [f for f in files if f != "MEMORY.md"]
-    if not files:
-        return {"status": "empty", "reason": None, "entries": []}
-    entries = parse_memory_files(mdir, files)
-    return {"status": "ok", "reason": None, "entries": entries}
+def compute_days_stalled(git_sub, files_sub, sessions_sub, as_of):
+    """Longest inactivity across the three activity signals (last commit,
+    newest file, last session) against as_of -- the exact computation the
+    `dormant` flag already needed, now also exposed for
+    `facts.steer_candidates` ranking (§7) so both consumers share one
+    implementation (design rule 6), never two copies of it."""
+    return min(
+        days_since(git_sub.get("last_commit"), as_of),
+        days_since(files_sub.get("newest"), as_of),
+        days_since(sessions_sub.get("last_session"), as_of),
+    )
 
 
 def compute_flags(git_sub, files_sub, sessions_sub, as_of):
@@ -463,7 +691,6 @@ def compute_flags(git_sub, files_sub, sessions_sub, as_of):
     last_commit = git_sub.get("last_commit")
     dirty = git_sub.get("dirty") or 0
     last_session = sessions_sub.get("last_session")
-    newest = files_sub.get("newest")
 
     if (has_git and dirty >= THRESHOLDS["UNCOMMITTED_STALLED_COUNT"]
             and days_since(last_commit, as_of) >= THRESHOLDS["STALLED_DAYS"]):
@@ -477,12 +704,7 @@ def compute_flags(git_sub, files_sub, sessions_sub, as_of):
     if not has_git and nfiles >= THRESHOLDS["UNVERSIONED_BUILD_FILE_COUNT"]:
         flags.append("unversioned build")
 
-    latest = min(
-        days_since(last_commit, as_of),
-        days_since(newest, as_of),
-        days_since(last_session, as_of),
-    )
-    if latest >= THRESHOLDS["DORMANT_DAYS"]:
+    if compute_days_stalled(git_sub, files_sub, sessions_sub, as_of) >= THRESHOLDS["DORMANT_DAYS"]:
         flags.append("dormant")
 
     return flags
@@ -494,25 +716,43 @@ def measure_project(root, config_dir, as_of, git_bin="git"):
     be stat-ed — legal when a child vanishes between discovery and
     measurement (amended criterion 3) — otherwise "ok", with per-source
     status living one level down in git/files/sessions/memory (criterion
-    10's finer granularity)."""
-    if not os.path.isdir(root):
-        return {"status": "failed", "reason": f"project root not found or not a directory: {root}"}
+    10's finer granularity).
 
+    SAR-03: every entry (including a "failed" one) carries `"slug"` —
+    closes the v0.2 gap where the fact sheet exposed no field identifying a
+    project's config-dir slug (criterion 12). An "ok" entry additionally
+    carries `"ruled_flags"` and `"decisions"` — always present, computed
+    from decision files under this project's own memory directory."""
     slug_val = slug(root)
+    if not os.path.isdir(root):
+        return {
+            "status": "failed",
+            "reason": f"project root not found or not a directory: {root}",
+            "slug": slug_val,
+        }
+
     git_sub = measure_git(root, git_bin)
     files_sub = measure_files(root)
     sessions_sub = measure_sessions(config_dir, slug_val)
-    memory_sub = measure_memory(config_dir, slug_val)
     flags = compute_flags(git_sub, files_sub, sessions_sub, as_of)
+    base_activity = [
+        git_sub.get("last_commit"), sessions_sub.get("last_session"), files_sub.get("newest"),
+    ]
+    memory_sub, decisions_sub = measure_memory_and_decisions(
+        config_dir, slug_val, as_of, base_activity)
+    ruled_flags = compute_ruled_flags(flags, decisions_sub["entries"])
 
     return {
         "status": "ok",
         "reason": None,
+        "slug": slug_val,
         "flags": flags,
+        "ruled_flags": ruled_flags,
         "git": git_sub,
         "files": files_sub,
         "sessions": sessions_sub,
         "memory": memory_sub,
+        "decisions": decisions_sub,
     }
 
 
@@ -595,13 +835,21 @@ def assign_project_keys(root_children, project_roots):
     return keys
 
 
-def collect_orphans(config_dir, project_roots, root_children):
+def collect_orphans(config_dir, project_roots, root_children, as_of):
     """facts.orphans — memory directories whose slug starts with a
     configured root's slug prefix but whose corresponding child directory
     does not exist on disk (criterion 15, rev 3: reverted to the
     prototype's exists-on-disk semantics — under root auto-discovery every
     existing child is measured, so absence from facts.projects genuinely
-    means gone from disk, never merely "not configured")."""
+    means gone from disk, never merely "not configured").
+
+    SAR-03: each entry additionally carries `"decisions"` (built the same
+    way as a project's, against the orphan's own already-known slug's
+    memory directory) and `"ruled"` — true iff at least one unexpired
+    decision exists. An orphan has no git/files/sessions activity signals
+    at all (the project directory is gone) — `activity_isos` is just the
+    max-non-decision-memory-entry-date signal, computed inside
+    measure_memory_and_decisions()."""
     projects_dir = os.path.join(config_dir, "projects")
     known_slugs = {
         slug(child) for children in root_children.values() for child in children
@@ -614,14 +862,52 @@ def collect_orphans(config_dir, project_roots, root_children):
             continue
         if not any(s.startswith(p) for p in root_prefixes):
             continue
-        mem_sub = measure_memory(config_dir, s)
+        memory_sub, decisions_sub = measure_memory_and_decisions(config_dir, s, as_of, [])
+        ruled = any(not d["expired"] for d in decisions_sub["entries"])
         entries.append({
             "slug": s,
-            "status": mem_sub["status"],
-            "reason": mem_sub["reason"],
-            "memory": mem_sub["entries"],
+            "status": memory_sub["status"],
+            "reason": memory_sub["reason"],
+            "memory": memory_sub["entries"],
+            "decisions": decisions_sub,
+            "ruled": ruled,
         })
     return {"status": "ok" if entries else "empty", "entries": entries}
+
+
+def compute_steer_candidates(projects, orphan_entries, as_of):
+    """`facts.steer_candidates` (§7): one entry per project/orphan carrying
+    at least one currently-unruled signal, ranked longest-stalled-unruled
+    first (ties broken by slug ascending) — the script's own deterministic
+    ranking; the report skill reads this list as-is, never re-ranks,
+    filters, or second-guesses it (rule 3)."""
+    candidates = []
+    for key, entry in projects.items():
+        if entry.get("status") != "ok":
+            continue
+        ruled_flag_names = {rf["flag"] for rf in entry["ruled_flags"]}
+        unruled_flags = [f for f in entry["flags"] if f not in ruled_flag_names]
+        if not unruled_flags:
+            continue
+        days_stalled = compute_days_stalled(entry["git"], entry["files"], entry["sessions"], as_of)
+        candidates.append({
+            "kind": "project",
+            "key": key,
+            "slug": entry["slug"],
+            "days_stalled": days_stalled,
+            "unruled_flags": unruled_flags,
+        })
+    for o in orphan_entries:
+        if o.get("ruled"):
+            continue
+        candidates.append({
+            "kind": "orphan",
+            "slug": o["slug"],
+            "days_stalled": THRESHOLDS["UNREACHABLE_DAYS_SENTINEL"],
+            "unruled_flags": [],
+        })
+    candidates.sort(key=lambda c: (-c["days_stalled"], c["slug"]))
+    return candidates
 
 
 # --------------------------------------------------------------------------
@@ -658,7 +944,8 @@ def cmd_measure(argv):
     for key, (root, child) in key_map.items():
         projects[key] = measure_project(child, config_dir, as_of)
 
-    orphans = collect_orphans(config_dir, project_roots, root_children)
+    orphans = collect_orphans(config_dir, project_roots, root_children, as_of)
+    steer_candidates = compute_steer_candidates(projects, orphans["entries"], as_of)
 
     output = {
         "schema_version": SCHEMA_VERSION,
@@ -668,6 +955,7 @@ def cmd_measure(argv):
             "roots": roots_section,
             "projects": projects,
             "orphans": orphans,
+            "steer_candidates": steer_candidates,
         },
     }
 
