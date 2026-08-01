@@ -15,6 +15,7 @@ import hashlib
 import json
 import os
 import re
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -36,6 +37,15 @@ from fixtures import (  # noqa: E402
     write_config,
     write_file,
 )
+
+# SAR-04: skills/report/render_report.py is a standalone script, not part of
+# sarathi.py -- imported directly the same way sarathi.py itself is, via an
+# explicit sys.path insert of its own directory (never copied or reimported
+# through sarathi.py, which has zero diff in this story).
+REPORT_SKILL_DIR = os.path.join(REPO_ROOT, "skills", "report")
+if REPORT_SKILL_DIR not in sys.path:
+    sys.path.insert(0, REPORT_SKILL_DIR)
+import render_report  # noqa: E402
 
 
 class TempDirCase(unittest.TestCase):
@@ -596,7 +606,7 @@ class TestPluginManifests(unittest.TestCase):
         with open(path, encoding="utf-8") as fh:
             data = json.load(fh)
         self.assertEqual(data["name"], "sarathi")
-        self.assertEqual(data["version"], "0.3.0")
+        self.assertEqual(data["version"], "0.4.0")
 
     def test_marketplace_json_valid(self):
         plugin_path = os.path.join(REPO_ROOT, ".claude-plugin", "plugin.json")
@@ -1245,6 +1255,313 @@ class TestVerdictAwareExpiry(unittest.TestCase):
                 sarathi.decision_is_expired(decision, [], as_of),
                 f"{verdict} should never time-expire",
             )
+
+
+# ----------------------------------------------------------------------------
+# SAR-04 additions below: render_report.py's deterministic injection, the
+# shipped template's static structural properties, and the pinned payload
+# schema shape (§12 of SAR-04). Everything above this line is SAR-01/02/03's
+# original suite, re-run unmodified as regression coverage, with one
+# necessary exception: the version literal in
+# TestPluginManifests.test_plugin_json_valid, which this story's own mandated
+# 0.3.0 -> 0.4.0 plugin.json bump requires updating (documented in the
+# coder's handoff) -- the same kind of one-line bump SAR-02 and SAR-03 each
+# already introduced for their own version transitions. sarathi.py itself has
+# zero diff in this story (§3/§4), so nothing else above this line changed.
+# ----------------------------------------------------------------------------
+REPORT_TEMPLATE_PATH = os.path.join(REPO_ROOT, "skills", "report", "report-template.html")
+RENDER_REPORT_PATH = os.path.join(REPO_ROOT, "skills", "report", "render_report.py")
+
+# The §6-pinned payload example, copied verbatim as a fixture -- never live
+# data (criterion 11 is validated against this, not against a real run).
+PINNED_PAYLOAD_EXAMPLE = {
+    "meta": {
+        "as_of": "2026-08-01",
+        "generated_at": "2026-08-01T14:32:07Z",
+        "version_label": "2026-08-01 · 14:32 UTC",
+        "voice": "plain",
+    },
+    "stats": {"projects": 30, "moving": 5, "losing_steam": 6, "forgotten": 4, "ruled": 3},
+    "sections": {
+        "moving": [
+            {
+                "key": "tokenomics",
+                "kind": "project",
+                "claims": [
+                    {"text": "Shipped v1.0.0 this week — 37 commits, clean working tree.",
+                     "citation": "facts.projects.tokenomics.git", "label": "measured"},
+                    {"text": "One flip (repo to public) from announceable.",
+                     "citation": "facts.projects.tokenomics.memory.entries[0]", "label": "derived"},
+                ],
+                "momentum_pct": 88,
+            }
+        ],
+        "losing_steam": [
+            {
+                "key": "BankStatementReader",
+                "kind": "project",
+                "claims": [
+                    {"text": "Last commit June 22, but 31 files sit uncommitted.",
+                     "citation": "facts.projects.BankStatementReader.git", "label": "measured"},
+                ],
+                "momentum_pct": 35,
+            }
+        ],
+        "forgotten": [
+            {
+                "key": "old-thing",
+                "kind": "orphan",
+                "claims": [
+                    {"text": "No project directory on disk; memory trail only.",
+                     "citation": "facts.orphans.entries[3]", "label": "measured"},
+                ],
+            }
+        ],
+        "ruled": [
+            {
+                "key": "EmailOrganiser",
+                "kind": "orphan",
+                "claims": [
+                    {"text": "Declared dead.",
+                     "citation": "facts.orphans.entries[1].decisions.entries[0]", "label": "measured"},
+                ],
+                "ruled_meta": {"verdict": "dead", "decided": "2026-08-01"},
+            }
+        ],
+    },
+    "steer_preview": [
+        {"key": "Chitragupta", "kind": "project",
+         "prompt": "Park it, say it's next, declare it dead, or keep watching?"},
+    ],
+}
+
+
+def _read_template():
+    with open(REPORT_TEMPLATE_PATH, encoding="utf-8") as fh:
+        return fh.read()
+
+
+def _extract_injected_json(fragment):
+    """Pull the text between the pinned id="sarathi-payload" script tags out
+    of a rendered fragment/standalone document and return it unparsed (the
+    caller decides whether to json.loads() it)."""
+    marker = 'id="sarathi-payload">'
+    start = fragment.index(marker) + len(marker)
+    end = fragment.index("</script>", start)
+    return fragment[start:end].strip()
+
+
+class TestRenderFragmentInjection(unittest.TestCase):
+    """Criteria 1-4: render_fragment()'s deterministic marker injection,
+    round-trip fidelity, and marker-count enforcement (design rule 2)."""
+
+    def setUp(self):
+        self.template = (
+            "<div>before</div>\n"
+            '<script type="application/json" id="sarathi-payload">\n'
+            "__SARATHI_REPORT_PAYLOAD__\n"
+            "</script>\n"
+            "<div>after</div>\n"
+        )
+        self.payload = {"a": 1, "b": [1, 2, 3], "c": {"d": "e"}}
+
+    def test_render_fragment_roundtrip(self):
+        out1 = render_report.render_fragment(self.template, self.payload)
+        out2 = render_report.render_fragment(self.template, self.payload)
+        self.assertEqual(out1, out2)  # byte-identical given the same inputs, twice
+        self.assertNotIn(render_report.MARKER, out1)
+        self.assertEqual(json.loads(_extract_injected_json(out1)), self.payload)
+
+    def test_render_fragment_marker_count_enforced(self):
+        zero_marker = self.template.replace(render_report.MARKER, "")
+        with self.assertRaises(render_report.TemplateError):
+            render_report.render_fragment(zero_marker, self.payload)
+
+        dup_marker = self.template + render_report.MARKER
+        with self.assertRaises(render_report.TemplateError):
+            render_report.render_fragment(dup_marker, self.payload)
+
+    def test_render_fragment_escapes_closing_script_tag(self):
+        payload = {"text": "a memory that says </script> and <!-- inline, verbatim"}
+        out = render_report.render_fragment(self.template, payload)
+        injected = _extract_injected_json(out)
+        self.assertNotIn("<", injected)  # every '<' escaped to \u003c, reviewer ruling
+        self.assertNotIn("</script>", injected)
+        self.assertNotIn("<!--", injected)
+        self.assertEqual(json.loads(injected), payload)  # round-trip still holds exactly
+
+    def test_render_fragment_no_document_wrapper(self):
+        out = render_report.render_fragment(self.template, self.payload)
+        self.assertNotIn("<!DOCTYPE", out)
+        self.assertNotIn("<html", out)
+        self.assertNotIn("<head>", out)
+        self.assertNotIn("<body>", out)
+
+
+class TestRenderStandalone(unittest.TestCase):
+    """Criterion 6: render_standalone() wraps the same injected content in a
+    minimal document shell -- adds nothing but the shell itself."""
+
+    def setUp(self):
+        self.template = (
+            '<script type="application/json" id="sarathi-payload">\n'
+            "__SARATHI_REPORT_PAYLOAD__\n"
+            "</script>\n"
+        )
+        self.payload = {"x": 1}
+        self.title = "Sarathi — Direction Report"
+
+    def test_render_standalone_wraps_with_title_and_fragment(self):
+        out = render_report.render_standalone(self.template, self.payload, self.title)
+        self.assertEqual(out.count("<!DOCTYPE html>"), 1)
+        self.assertEqual(out.count("<html>"), 1)
+        self.assertEqual(out.count("<head>"), 1)
+        self.assertEqual(out.count("<body>"), 1)
+        self.assertIn("<title>{}</title>".format(self.title), out)
+
+    def test_render_standalone_and_fragment_share_injected_content(self):
+        fragment = render_report.render_fragment(self.template, self.payload)
+        standalone = render_report.render_standalone(self.template, self.payload, self.title)
+        self.assertIn(fragment, standalone)  # shell wraps around it, changes nothing inside
+
+    def test_render_standalone_marker_count_enforced(self):
+        zero_marker = self.template.replace(render_report.MARKER, "")
+        with self.assertRaises(render_report.TemplateError):
+            render_report.render_standalone(zero_marker, self.payload, self.title)
+
+
+class TestReportTemplateStaticStructure(unittest.TestCase):
+    """Criteria 7-10, 28: the shipped template's static structural
+    properties, scanned as plain text -- no browser/JS execution needed."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.template = _read_template()
+
+    def test_template_no_external_urls(self):
+        self.assertNotIn("http://", self.template)
+        self.assertNotIn("https://", self.template)
+
+    def test_template_has_reduced_motion_media_query(self):
+        self.assertIn("@media (prefers-reduced-motion: reduce)", self.template)
+
+    def test_template_has_theme_aware_rules(self):
+        self.assertIn("@media (prefers-color-scheme: dark)", self.template)
+        self.assertIn('data-theme="dark"', self.template)
+
+    def test_template_marker_present_exactly_once_in_id_script_block(self):
+        self.assertEqual(self.template.count(render_report.MARKER), 1)
+        marker_idx = self.template.index(render_report.MARKER)
+        script_open = self.template.rindex(
+            '<script type="application/json" id="sarathi-payload">', 0, marker_idx)
+        script_close = self.template.index("</script>", marker_idx)
+        self.assertLess(script_open, marker_idx)
+        self.assertLess(marker_idx, script_close)
+
+    def test_template_no_document_wrapper_tags(self):
+        self.assertNotIn("<!DOCTYPE", self.template)
+        self.assertNotIn("<html", self.template)
+        self.assertNotIn("<head>", self.template)
+        self.assertNotIn("<body>", self.template)
+
+    def test_template_no_machine_specific_path(self):
+        # criterion 28: environment neutrality -- no literal home dir, no
+        # hardcoded /Users/... or C:\ path baked into the shipped template.
+        self.assertNotIn("/Users/", self.template)
+        self.assertNotIn("/home/", self.template)
+
+
+class TestPayloadExampleSchemaShape(unittest.TestCase):
+    """Criterion 11: the pinned §6 payload example validated against the
+    schema shape -- keys present, every claim carries citation+label, every
+    label is exactly 'measured' or 'derived'."""
+
+    def test_payload_example_matches_pinned_schema_shape(self):
+        payload = PINNED_PAYLOAD_EXAMPLE
+        self.assertIn("meta", payload)
+        self.assertIn("stats", payload)
+        self.assertIn("sections", payload)
+        self.assertIn("steer_preview", payload)
+        for name in ("moving", "losing_steam", "forgotten", "ruled"):
+            self.assertIn(name, payload["sections"])
+            self.assertIsInstance(payload["sections"][name], list)
+        for section in payload["sections"].values():
+            for item in section:
+                for claim in item["claims"]:
+                    self.assertIn("citation", claim)
+                    self.assertIn("label", claim)
+                    self.assertIn(claim["label"], ("measured", "derived"))
+
+    def test_payload_example_renders_without_error(self):
+        # End-to-end sanity: the pinned example actually injects cleanly
+        # into the shipped template and round-trips exactly.
+        out = render_report.render_fragment(_read_template(), PINNED_PAYLOAD_EXAMPLE)
+        self.assertEqual(json.loads(_extract_injected_json(out)), PINNED_PAYLOAD_EXAMPLE)
+
+
+class TestRenderReportCLI(unittest.TestCase):
+    """The --out CLI path produces the same content the function-level call
+    would -- exercised via subprocess, the real CLI entry point, the same
+    way tests/fixtures.py's run_sarathi() exercises sarathi.py's own CLI."""
+
+    def test_render_report_cli_writes_expected_file(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            payload_path = os.path.join(tmp, "payload.json")
+            with open(payload_path, "w", encoding="utf-8") as fh:
+                json.dump(PINNED_PAYLOAD_EXAMPLE, fh)
+            out_path = os.path.join(tmp, "fragment.html")
+            r = subprocess.run(
+                [sys.executable, RENDER_REPORT_PATH,
+                 "--template", REPORT_TEMPLATE_PATH,
+                 "--payload", payload_path,
+                 "--out", out_path],
+                capture_output=True, text=True,
+            )
+            self.assertEqual(r.returncode, 0, r.stderr)
+            with open(out_path, encoding="utf-8") as fh:
+                cli_output = fh.read()
+
+            direct_output = render_report.render_fragment(_read_template(), PINNED_PAYLOAD_EXAMPLE)
+            self.assertEqual(cli_output, direct_output)
+
+    def test_render_report_cli_standalone_mode(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            payload_path = os.path.join(tmp, "payload.json")
+            with open(payload_path, "w", encoding="utf-8") as fh:
+                json.dump(PINNED_PAYLOAD_EXAMPLE, fh)
+            out_path = os.path.join(tmp, "report-2026-08-01.html")
+            r = subprocess.run(
+                [sys.executable, RENDER_REPORT_PATH,
+                 "--template", REPORT_TEMPLATE_PATH,
+                 "--payload", payload_path,
+                 "--standalone", "Sarathi — Direction Report",
+                 "--out", out_path],
+                capture_output=True, text=True,
+            )
+            self.assertEqual(r.returncode, 0, r.stderr)
+            with open(out_path, encoding="utf-8") as fh:
+                content = fh.read()
+            self.assertEqual(content.count("<!DOCTYPE html>"), 1)
+            self.assertIn("<title>Sarathi — Direction Report</title>", content)
+
+    def test_render_report_cli_marker_error_exits_nonzero(self):
+        # rule 2: a broken template (marker missing) must fail loudly via
+        # the CLI too, not just at the function level.
+        with tempfile.TemporaryDirectory() as tmp:
+            broken_template_path = os.path.join(tmp, "broken.html")
+            with open(broken_template_path, "w", encoding="utf-8") as fh:
+                fh.write("<div>no marker here</div>")
+            payload_path = os.path.join(tmp, "payload.json")
+            with open(payload_path, "w", encoding="utf-8") as fh:
+                json.dump(PINNED_PAYLOAD_EXAMPLE, fh)
+            r = subprocess.run(
+                [sys.executable, RENDER_REPORT_PATH,
+                 "--template", broken_template_path,
+                 "--payload", payload_path],
+                capture_output=True, text=True,
+            )
+            self.assertNotEqual(r.returncode, 0)
+            self.assertIn("marker", r.stderr.lower())
 
 
 if __name__ == "__main__":
