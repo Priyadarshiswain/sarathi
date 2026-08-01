@@ -2,11 +2,9 @@
   .sarathi-ledger {
     --bg: #F2F1EF; --surface: #FFFFFF; --ink: #23262E; --muted: #5D636E; --faint: #8A909B;
     --line: #DEDCD6; --gold: #8A6D1F; --gold-soft: #F3ECD8;
-    --user: #6B4FA0; --user-soft: #EFE9F6;
-    --feedback: #1C7A6E; --feedback-soft: #E2F1EE;
-    --project: #2A5FA0; --project-soft: #E6EEF8;
-    --reference: #A0632A; --reference-soft: #F8EEE6;
-    --untyped: #6E7480; --untyped-soft: #ECEDEF;
+    --setup: #A0632A; --setup-soft: #F8EEE6;
+    --working-style: #1C7A6E; --working-style-soft: #E2F1EE;
+    --project-memory: #2A5FA0; --project-memory-soft: #E6EEF8;
     --decision: #7A3B3B; --decision-soft: #F6E9E9;
     --code-bg: #EAE8E3;
     background: var(--bg); color: var(--ink);
@@ -17,11 +15,9 @@
     .sarathi-ledger {
       --bg: #15141A; --surface: #1D1B24; --ink: #E7E6EA; --muted: #A3A1AC; --faint: #6E6C78;
       --line: #2C2A34; --gold: #D8B85C; --gold-soft: #2E2A17;
-      --user: #B49CE0; --user-soft: #2A2436;
-      --feedback: #5FC2B2; --feedback-soft: #1B2B28;
-      --project: #7FB0E6; --project-soft: #1D2A38;
-      --reference: #E0A374; --reference-soft: #2E2419;
-      --untyped: #9A9CA8; --untyped-soft: #24232B;
+      --setup: #E0A374; --setup-soft: #2E2419;
+      --working-style: #5FC2B2; --working-style-soft: #1B2B28;
+      --project-memory: #7FB0E6; --project-memory-soft: #1D2A38;
       --decision: #D89494; --decision-soft: #2E1F1F;
       --code-bg: #26242E;
     }
@@ -29,22 +25,18 @@
   :root[data-theme="light"] .sarathi-ledger {
     --bg: #F2F1EF; --surface: #FFFFFF; --ink: #23262E; --muted: #5D636E; --faint: #8A909B;
     --line: #DEDCD6; --gold: #8A6D1F; --gold-soft: #F3ECD8;
-    --user: #6B4FA0; --user-soft: #EFE9F6;
-    --feedback: #1C7A6E; --feedback-soft: #E2F1EE;
-    --project: #2A5FA0; --project-soft: #E6EEF8;
-    --reference: #A0632A; --reference-soft: #F8EEE6;
-    --untyped: #6E7480; --untyped-soft: #ECEDEF;
+    --setup: #A0632A; --setup-soft: #F8EEE6;
+    --working-style: #1C7A6E; --working-style-soft: #E2F1EE;
+    --project-memory: #2A5FA0; --project-memory-soft: #E6EEF8;
     --decision: #7A3B3B; --decision-soft: #F6E9E9;
     --code-bg: #EAE8E3;
   }
   :root[data-theme="dark"] .sarathi-ledger {
     --bg: #15141A; --surface: #1D1B24; --ink: #E7E6EA; --muted: #A3A1AC; --faint: #6E6C78;
     --line: #2C2A34; --gold: #D8B85C; --gold-soft: #2E2A17;
-    --user: #B49CE0; --user-soft: #2A2436;
-    --feedback: #5FC2B2; --feedback-soft: #1B2B28;
-    --project: #7FB0E6; --project-soft: #1D2A38;
-    --reference: #E0A374; --reference-soft: #2E2419;
-    --untyped: #9A9CA8; --untyped-soft: #24232B;
+    --setup: #E0A374; --setup-soft: #2E2419;
+    --working-style: #5FC2B2; --working-style-soft: #1B2B28;
+    --project-memory: #7FB0E6; --project-memory-soft: #1D2A38;
     --decision: #D89494; --decision-soft: #2E1F1F;
     --code-bg: #26242E;
   }
@@ -81,7 +73,21 @@
     font-family: Charter, "Iowan Old Style", Georgia, serif; font-size: 30px; font-weight: 700;
     margin: 0 0 6px; letter-spacing: -.01em; text-wrap: balance;
   }
-  .sarathi-ledger .sl-sub { color: var(--muted); margin: 0 0 24px; max-width: 60ch; }
+  .sarathi-ledger .sl-sub { color: var(--muted); margin: 0 0 18px; max-width: 60ch; }
+
+  /* -- simple/verbose density toggle (SAR-06 §7) -- a display-density
+     switch only; never a voice switch, never a second payload shape. */
+  .sarathi-ledger .sl-view-toggle {
+    display: inline-flex; gap: 2px; margin-bottom: 22px; background: var(--surface);
+    border: 1px solid var(--line); border-radius: 999px; padding: 3px;
+  }
+  .sarathi-ledger .sl-view-btn {
+    font: inherit; font-size: 12.5px; font-weight: 650; color: var(--muted);
+    background: transparent; border: 0; border-radius: 999px; padding: 5px 14px;
+    cursor: pointer;
+  }
+  .sarathi-ledger .sl-view-btn.active { background: var(--gold-soft); color: var(--gold); }
+  .sarathi-ledger .sl-view-btn:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
 
   .sarathi-ledger .sl-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 8px; }
   @media (max-width: 560px) { .sarathi-ledger .sl-stats { grid-template-columns: 1fr; } }
@@ -105,11 +111,9 @@
     font-size: 11px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase;
     padding: 2px 9px; border-radius: 999px; flex: none;
   }
-  .sarathi-ledger .sec-user h2 .sl-glyph { background: var(--user-soft); color: var(--user); }
-  .sarathi-ledger .sec-feedback h2 .sl-glyph { background: var(--feedback-soft); color: var(--feedback); }
-  .sarathi-ledger .sec-project h2 .sl-glyph { background: var(--project-soft); color: var(--project); }
-  .sarathi-ledger .sec-reference h2 .sl-glyph { background: var(--reference-soft); color: var(--reference); }
-  .sarathi-ledger .sec-untyped h2 .sl-glyph { background: var(--untyped-soft); color: var(--untyped); }
+  .sarathi-ledger .sec-setup h2 .sl-glyph { background: var(--setup-soft); color: var(--setup); }
+  .sarathi-ledger .sec-working_style h2 .sl-glyph { background: var(--working-style-soft); color: var(--working-style); }
+  .sarathi-ledger .sec-project_memory h2 .sl-glyph { background: var(--project-memory-soft); color: var(--project-memory); }
   .sarathi-ledger .sec-decisions h2 .sl-glyph { background: var(--decision-soft); color: var(--decision); }
   .sarathi-ledger .sl-lede { color: var(--muted); font-size: 13px; margin: 0 0 14px; }
   .sarathi-ledger .sl-none {
@@ -120,12 +124,22 @@
     background: var(--surface); border: 1px solid var(--line); border-radius: 8px;
     padding: 13px 16px; margin-bottom: 10px;
   }
-  .sarathi-ledger .sl-item-top {
-    display: flex; align-items: baseline; gap: 9px; flex-wrap: wrap; margin-bottom: 3px;
+  /* -- one-line row (simple density): name + chips on a single flexed line,
+     independently click/keyboard-expandable regardless of the global view
+     (SAR-06 §6/§7). */
+  .sarathi-ledger .sl-row {
+    display: flex; align-items: baseline; gap: 9px; flex-wrap: wrap; cursor: pointer;
+    position: relative; padding-left: 14px;
   }
-  .sarathi-ledger .sl-item-top h3 { font-size: 15px; margin: 0; font-weight: 650; }
-  .sarathi-ledger .sl-desc { margin: 4px 0 0; font-size: 13.5px; color: var(--ink); line-height: 1.5; }
-  .sarathi-ledger .sl-metarow { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+  .sarathi-ledger .sl-row::before {
+    content: '▸'; position: absolute; left: 0; top: .15em; font-size: 11px; color: var(--faint);
+    transition: transform .15s ease;
+  }
+  .sarathi-ledger .sl-row[aria-expanded="true"]::before { transform: rotate(90deg); }
+  .sarathi-ledger .sl-row:focus-visible { outline: 2px solid var(--gold); outline-offset: 3px; }
+  .sarathi-ledger .sl-name { font-size: 15px; margin: 0; font-weight: 650; }
+  .sarathi-ledger .sl-desc { margin: 8px 0 0; font-size: 13.5px; color: var(--ink); line-height: 1.5; }
+  .sarathi-ledger .sl-metarow { display: flex; gap: 6px; flex-wrap: wrap; }
   .sarathi-ledger .sl-chip {
     display: inline-block; font-size: 10px; font-weight: 700; letter-spacing: .04em;
     padding: 2px 8px; border-radius: 999px; white-space: nowrap;
@@ -137,6 +151,15 @@
   }
   .sarathi-ledger .sl-threads { margin: 8px 0 0; padding-left: 18px; font-size: 12.5px; color: var(--muted); }
   .sarathi-ledger .sl-threads li { margin: 2px 0; }
+
+  /* -- density: the full card (desc + threads) is hidden by default in
+     simple density, shown whenever the page-level view is "verbose" OR
+     this one row has been individually expanded -- same verbatim DOM
+     either way, only CSS visibility changes (zero-judgment law, SAR-06
+     §6's binding law: simple OMITS fields, never rewrites them). -- */
+  .sarathi-ledger .sl-full { display: none; }
+  .sarathi-ledger[data-view="verbose"] .sl-item .sl-full { display: block; }
+  .sarathi-ledger .sl-item.expanded .sl-full { display: block; }
 
   /* -- steering decisions (static, unanimated -- SAR-05 §7) -------------- */
   .sarathi-ledger .sec-decisions .sl-item { background: var(--decision-soft); }
@@ -173,31 +196,26 @@
     <p class="sl-sub" id="sl-subtitle"></p>
   </header>
 
+  <div class="sl-view-toggle" id="sl-view-toggle" role="group" aria-label="Display density">
+    <button type="button" class="sl-view-btn" data-view="simple">Simple</button>
+    <button type="button" class="sl-view-btn" data-view="verbose">Verbose</button>
+  </div>
+
   <div class="sl-stats" id="sl-stats"></div>
 
-  <section class="sl-sec sec-user">
-    <h2><span class="sl-glyph">about you</span></h2>
-    <div class="sl-items" id="group-user"></div>
+  <section class="sl-sec sl-module-sec sec-setup" id="sec-setup">
+    <h2><span class="sl-glyph">dev setup</span></h2>
+    <div class="sl-items" id="module-setup"></div>
   </section>
 
-  <section class="sl-sec sec-feedback">
+  <section class="sl-sec sl-module-sec sec-working_style" id="sec-working_style">
     <h2><span class="sl-glyph">working style</span></h2>
-    <div class="sl-items" id="group-feedback"></div>
+    <div class="sl-items" id="module-working_style"></div>
   </section>
 
-  <section class="sl-sec sec-project">
-    <h2><span class="sl-glyph">project state</span></h2>
-    <div class="sl-items" id="group-project"></div>
-  </section>
-
-  <section class="sl-sec sec-reference">
-    <h2><span class="sl-glyph">reference</span></h2>
-    <div class="sl-items" id="group-reference"></div>
-  </section>
-
-  <section class="sl-sec sec-untyped">
-    <h2><span class="sl-glyph">untyped</span></h2>
-    <div class="sl-items" id="group-untyped"></div>
+  <section class="sl-sec sl-module-sec sec-project_memory" id="sec-project_memory">
+    <h2><span class="sl-glyph">project memory</span></h2>
+    <div class="sl-items" id="module-project_memory"></div>
   </section>
 
   <section class="sl-sec sec-decisions">
@@ -213,9 +231,11 @@
 
   <footer class="sl-foot">
     Every field on this page is copied verbatim from your own memory files and steering
-    decisions — nothing here is written or paraphrased by the model. Group placement is a
+    decisions — nothing here is written or paraphrased by the model. Module placement is a
     fixed rule based on each entry's own <code>type</code> value; an entry's raw type is shown
-    on its card whenever it differs from the group it's filed under.
+    on its card whenever it differs from its module's native type. The simple/verbose toggle
+    and each row's independent expand only change which already-present fields are currently
+    visible — nothing is fetched or composed when you switch views.
   </footer>
 </div>
 
@@ -271,6 +291,40 @@ __SARATHI_REPORT_PAYLOAD__
     subtitleEl.textContent = parts.join(' — ') + '.';
   }
 
+  // ------------------------------------------------------ view toggle
+  // Header-level density switch (SAR-06 §6/§7). Initial state reads
+  // payload.meta.default_view -- never a hidden default, always this
+  // explicit field. Client-side only: switching views never re-fetches
+  // or re-derives anything, it only flips which already-rendered fields
+  // are currently visible via the [data-view] CSS rules above.
+  var viewToggle = document.getElementById('sl-view-toggle');
+
+  function applyView(view) {
+    var resolved = (view === 'verbose') ? 'verbose' : 'simple';
+    root.setAttribute('data-view', resolved);
+    if (viewToggle) {
+      var btns = viewToggle.querySelectorAll('.sl-view-btn');
+      for (var i = 0; i < btns.length; i++) {
+        var isActive = btns[i].getAttribute('data-view') === resolved;
+        btns[i].classList.toggle('active', isActive);
+        btns[i].setAttribute('aria-pressed', isActive ? 'true' : 'false');
+      }
+    }
+  }
+
+  applyView(meta.default_view);
+
+  if (viewToggle) {
+    viewToggle.addEventListener('click', function (ev) {
+      var target = ev.target;
+      while (target && target !== viewToggle && !target.classList.contains('sl-view-btn')) {
+        target = target.parentNode;
+      }
+      if (!target || target === viewToggle) { return; }
+      applyView(target.getAttribute('data-view'));
+    });
+  }
+
   // --------------------------------------------------------------- stats
   var stats = payload.stats || {};
   var statDefs = [
@@ -289,61 +343,89 @@ __SARATHI_REPORT_PAYLOAD__
   }
 
   // ------------------------------------------------------------- entries
-  function renderEntry(entry, groupType, revealClass) {
+  // Each entry renders the exact same verbatim fields regardless of
+  // density -- simple view hides `.sl-full` (desc/threads) via CSS, it
+  // never receives a second, trimmed copy of the entry (SAR-06 §6's
+  // binding law). `nativeType` is read straight from the payload's own
+  // `modules[*].native_type` -- one comparison, never a per-module
+  // hardcoded literal (criterion 23).
+  function renderEntry(entry, nativeType, revealClass) {
     entry = entry || {};
     var art = document.createElement('article');
     art.className = 'sl-item' + (revealClass ? ' ' + revealClass : '');
 
-    var top = make('div', 'sl-item-top');
-    top.appendChild(make('h3', null, entry.name || ''));
-    art.appendChild(top);
+    var rowEl = make('div', 'sl-row');
+    rowEl.setAttribute('role', 'button');
+    rowEl.setAttribute('tabindex', '0');
+    rowEl.setAttribute('aria-expanded', 'false');
+    rowEl.appendChild(make('h3', 'sl-name', entry.name || ''));
 
+    var metarow = make('div', 'sl-metarow');
+    metarow.appendChild(chip('source', (entry.source || '') + (entry.source_kind ? ' · ' + entry.source_kind : '')));
+    if (entry.date) { metarow.appendChild(chip('date', entry.date)); }
+    // Generalized chip rule (SAR-06 §6, supersedes SAR-05 criterion 40):
+    // show the raw `type` value whenever it differs from the current
+    // module's own native_type -- one comparison, applies to all three
+    // modules, never three separately hardcoded per-module literals.
+    if (entry.type && entry.type !== nativeType) {
+      metarow.appendChild(chip('type', entry.type));
+    }
+    rowEl.appendChild(metarow);
+    art.appendChild(rowEl);
+
+    var full = make('div', 'sl-full');
     if (entry.desc) {
-      art.appendChild(make('p', 'sl-desc', entry.desc));
+      full.appendChild(make('p', 'sl-desc', entry.desc));
     }
-
-    var row = make('div', 'sl-metarow');
-    row.appendChild(chip('source', (entry.source || '') + (entry.source_kind ? ' · ' + entry.source_kind : '')));
-    if (entry.date) { row.appendChild(chip('date', entry.date)); }
-    // Fable ruling 1 (acceptance criterion 40): show the raw `type` value
-    // whenever it differs from the group it's filed under, so a
-    // hand-written unusual type stands out inside the untyped bucket
-    // instead of blending into truly-untyped notes.
-    if (entry.type && entry.type !== groupType) {
-      row.appendChild(chip('type', entry.type));
-    }
-    art.appendChild(row);
-
     if (entry.threads && entry.threads.length) {
       var ul = make('ul', 'sl-threads');
       entry.threads.forEach(function (t) { ul.appendChild(make('li', null, t)); });
-      art.appendChild(ul);
+      full.appendChild(ul);
     }
+    art.appendChild(full);
+
+    // Per-row expand is independent of the global view state (SAR-06 §6):
+    // toggling one row never flips `data-view`, and the header toggle
+    // never needs to be touched to collapse a row back down.
+    function toggleExpanded() {
+      var expanded = art.classList.toggle('expanded');
+      rowEl.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+    }
+    rowEl.addEventListener('click', toggleExpanded);
+    rowEl.addEventListener('keydown', function (ev) {
+      if (ev.key === 'Enter' || ev.key === ' ' || ev.key === 'Spacebar') {
+        ev.preventDefault();
+        toggleExpanded();
+      }
+    });
+
     return art;
   }
 
-  function renderGroup(group) {
-    group = group || {};
-    var container = document.getElementById('group-' + group.type);
+  function renderModule(module) {
+    module = module || {};
+    var container = document.getElementById('module-' + module.key);
     if (!container) { return; }
-    var entries = group.entries || [];
+    var entries = module.entries || [];
     if (entries.length === 0) {
       container.appendChild(make('p', 'sl-none', 'None recorded.'));
       return;
     }
     entries.forEach(function (entry, i) {
-      var el = renderEntry(entry, group.type, reduced ? null : 'rv');
+      var el = renderEntry(entry, module.native_type, reduced ? null : 'rv');
       if (!reduced) { el.style.transitionDelay = (Math.min(i % 6, 4) * 60) + 'ms'; }
       container.appendChild(el);
     });
   }
 
-  (payload.groups || []).forEach(function (group) { renderGroup(group); });
+  (payload.modules || []).forEach(function (module) { renderModule(module); });
 
   // ---------------------------------------------------------- decisions
   // Static, unanimated (no 'rv' class) -- mirrors SAR-04 §7's "ruled items
   // are settled history" precedent: a decision, once written, shouldn't
-  // animate as if it just arrived.
+  // animate as if it just arrived. Decisions are always shown in full --
+  // they were already terse, single-line-per-item shapes, unaffected by
+  // the simple/verbose density toggle (SAR-06 §8).
   var decisionsEl = document.getElementById('sl-decisions');
   var decisions = payload.decisions || [];
   if (decisionsEl) {

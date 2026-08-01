@@ -1,20 +1,26 @@
 ---
 name: memory
 description: Read-only ledger of everything Sarathi's measure step already knows about you from memory files and steering decisions — every entry and every decision quoted verbatim, published as one living artifact ("Sarathi — Memory Ledger"), redeployed to the same URL every run. Never interprets, never asks, never writes. Use when the user asks what Sarathi knows about them, wants to see their memory entries or steering decisions, or asks for the memory ledger.
+argument-hint: "[--verbose]"
 allowed-tools: Bash, Read, Write, Artifact
 ---
 
 # Sarathi memory ledger
 
-You produce Sarathi's read-only ledger — every memory entry (`user` / `feedback` / `project` /
-`reference` / `untyped`, bucketed by a fixed rule) and every steering decision the fact sheet
-already carries, copied verbatim, never interpreted, never paraphrased, no voice adjustment —
-and publish it as **one living artifact**, "Sarathi — Memory Ledger", redeployed to the same
-URL every run, falling back to a local HTML file only when the Artifact tool isn't available.
-This is a sibling to `/sarathi:report`, not a replacement for it: independent title, independent
-template, independent payload. A user can run either skill, both, or neither, in any order, any
-number of times. Nothing in `skills/report/` is touched by this skill, and this skill never
-asks a question, never writes a memory file or decision file, and never touches `MEMORY.md`.
+You produce Sarathi's read-only ledger — every memory entry, bucketed into three fixed modules
+(`setup` / `working_style` / `project_memory`, bucketed by a fixed rule) — and every steering
+decision the fact sheet already carries, copied verbatim, never interpreted, never paraphrased,
+no voice adjustment — and publish it as **one living artifact**, "Sarathi — Memory Ledger",
+redeployed to the same URL every run, falling back to a local HTML file only when the Artifact
+tool isn't available. The published page opens in **simple** density by default (headline stats
+plus a one-line row per entry) or **verbose** density (every entry's full card) when the user's
+own invocation carried `--verbose` (§4 below); either way, a header toggle and each row's own
+independent expand let a reader switch density client-side, no re-fetch, same payload either
+way (SAR-06). This is a sibling to `/sarathi:report`, not a replacement for it: independent
+title, independent template, independent payload. A user can run either skill, both, or
+neither, in any order, any number of times. Nothing in `skills/report/` is touched by this
+skill, and this skill never asks a question, never writes a memory file or decision file, and
+never touches `MEMORY.md`.
 
 ## 1. Check readiness — run-then-fallback, narrower than `/sarathi:doctor`
 
@@ -59,16 +65,37 @@ not build a ledger against a fact sheet that wasn't actually just written.
 ## 3. Read the fact sheet
 
 Read the JSON file at the `output_path` recorded in config.json (the one
-`measure` just wrote) — this is also the `--facts` argument §4 below passes
+`measure` just wrote) — this is also the `--facts` argument §5 below passes
 straight through.
 
 **Read `facts.roots` before you draw any conclusion from `facts.orphans`.**
-A root reporting `"failed"` or `"empty"` is why §4's payload builder attaches
+A root reporting `"failed"` or `"empty"` is why §5's payload builder attaches
 a `root_unreadable` caveat to any orphan whose slug it prefixes — a root you
 couldn't fully read right now is a reason a project might not really be
 gone, not proof that it is.
 
-## 4. Build the payload — mechanical, via a script, never assembled by hand
+## 4. Determine the requested view from your own invocation text
+
+Before building the payload, look at the literal text the user used to invoke this skill this
+run (e.g. `/sarathi:memory --verbose` vs. plain `/sarathi:memory`):
+
+- If that invocation text contains the exact token `--verbose`, matched case-insensitively,
+  anywhere in the text: `requested_view = "verbose"`.
+- Otherwise: `requested_view = "simple"`.
+
+**Unrecognized argument text — loud, not fatal.** If the invocation carried other non-empty
+argument text that is not `--verbose` (a typo, an unsupported flag, stray text after the skill
+name), say so in one line in-session — *"ignored unrecognized argument: `<text>` — the only
+supported flag is `--verbose`"* — and proceed in **simple** view. Never guess intent from a
+near-miss token (e.g. `-verbose`, `--verbos`, `verbose` with no dashes all count as
+unrecognized, not as `--verbose`); the exact token is the only thing that flips the view.
+
+This is a parsed invocation argument, not a question — `AskUserQuestion` is never called here,
+consistent with §8's read-only, no-question contract. `requested_view` flows into two places:
+§5's CLI call (`--default-view <requested_view>`) and the fallback path's listing-verbosity
+choice (§6 below).
+
+## 5. Build the payload — mechanical, via a script, never assembled by hand
 
 Unlike `/sarathi:report`, this step writes **no prose at all**. Every payload
 field is either copied character-for-character from the fact sheet or a pure
@@ -79,6 +106,7 @@ That mechanical work is a script, not something you compose by hand:
 ```bash
 <invoker> "${CLAUDE_PLUGIN_ROOT}/skills/memory/build_ledger_payload.py" \
   --facts <output_path recorded in config.json> \
+  --default-view <requested_view from §4> \
   --out <temp-payload-path>
 ```
 
@@ -89,11 +117,12 @@ This one call does everything §6 of the story pins:
   `sarathi.py` already wrote them — never re-sorted by date or name.
 - Skips any project whose `status` isn't `"ok"` — a configured child
   directory that vanished mid-run — without erroring.
-- Buckets each memory entry by its `type` field, exactly and
-  case-sensitively against `"user"` / `"feedback"` / `"project"` /
-  `"reference"`; anything else — including the literal `"untyped"` default
-  — falls into `untyped`, with the entry's own `type` field left exactly as
-  written (never rewritten to match its bucket).
+- Buckets each memory entry into one of three fixed modules by its `type`
+  field, exactly and case-sensitively: `"setup"` → the `setup` module;
+  `"feedback"` or `"user"` → the `working_style` module; anything else —
+  `"project"`, `"reference"`, the literal `"untyped"` default, or any other
+  free-text value — → the `project_memory` module. The entry's own `type`
+  field is left exactly as written (never rewritten to match its module).
 - Trims every orphan's `source` to the root-prefix-stripped slug — the
   identical procedure `/sarathi:report` already uses for its own `key`
   field — so the local OS username embedded in the raw slug never appears
@@ -101,18 +130,22 @@ This one call does everything §6 of the story pins:
 - Collects `caveats[]` for any source whose `memory`/`decisions` status is
   `"failed"` or `"ok"` with a non-null `reason` (a partial parse), and for
   any orphan whose matched root currently reports `"failed"`/`"empty"`.
-- Computes `stats` — pure counts over the two walks above.
+- Computes `stats` — pure counts over the two walks above, keyed by module
+  (`stats.by_module`).
+- Writes the requested view straight into `meta.default_view` — an
+  explicit, non-`voice`-derived input, never inferred from `config.json` or
+  any fact-sheet field.
 
 Never re-derive any of this by hand — the script is the single source of
-truth for bucketing, trimming, ordering, and the caveat rules. Your job at
-this step is entirely mechanical: run the command, hold onto the output path
-for §5.
+truth for bucketing, trimming, ordering, the caveat rules, and the view
+value. Your job at this step is entirely mechanical: run the command, hold
+onto the output path for §6.
 
-## 5. Publish — turn the payload into the one living artifact
+## 6. Publish — turn the payload into the one living artifact
 
 Using the invoker already resolved in §1:
 
-1. The payload is already written to the temp path from §4.
+1. The payload is already written to the temp path from §5.
 2. Run `render_report.py` (unmodified, shared byte-for-byte with
    `/sarathi:report`) in fragment mode against
    `${CLAUDE_PLUGIN_ROOT}/skills/memory/ledger-template.html` and the
@@ -166,32 +199,48 @@ Using the invoker already resolved in §1:
 2. State explicitly, in-session: the Artifact tool was unavailable (or
    errored) this run, the ledger was written locally instead, and its
    absolute path.
-3. Print the **full ledger as markdown** into the transcript — every group
-   under its own fixed heading (`about you`, `working style`,
-   `project state`, `reference`, `untyped`), every entry's verbatim fields
-   (name, description, date, type if it differs from its bucket, source,
-   date, threads), then a `steering decisions` heading listing every
-   decision's verbatim fields, then any `caveats[]` under their own
-   heading. This is a **mechanical reformatting of the payload §4 already
-   built** — list fields verbatim, under fixed headings mirroring the
-   pinned group labels, never compose a sentence about an entry. Nothing on
-   this page is LLM-composed prose, so "the full text report" here means
-   exactly this: the payload's own content, not a re-derivation of it.
+3. Print the ledger into the transcript — **shape depends on
+   `requested_view` from §4**, both shapes a **mechanical reformatting of
+   the payload §5 already built**, fixed headings only, list fields
+   verbatim, never compose a sentence about an entry:
+   - **`requested_view == "simple"` (default):** one line per entry — name,
+     date, source — under each of the three fixed module headings
+     (`dev setup`, `working style`, `project memory`), in the payload's own
+     module/entry order. A module with no entries still prints its heading
+     with a "None recorded." line (rule 2, unchanged) — this is expected
+     and correct for `dev setup` on the very first run after this story
+     ships, for every user, since no memory file yet uses the `type: setup`
+     convention; it is not a sign anything is broken. Steering decisions
+     and caveats still print in full underneath — this density choice only
+     changes the memory-entry listing, not the decisions/caveats sections,
+     which were already terse, single-line-per-item shapes with no fuller
+     form to omit down from.
+   - **`requested_view == "verbose"`:** the full per-entry verbatim listing
+     — name, description, date, type (when it differs from its module's
+     native type), source, threads — under the same three fixed module
+     headings, then `steering decisions` listing every decision's verbatim
+     fields, then any `caveats[]` under their own heading.
+   - Nothing on this page is LLM-composed prose in either shape, so "the
+     full text report" here means exactly this: the payload's own content,
+     reformatted mechanically, not a re-derivation of it.
 
 ### Artifact-mode in-session remainder (only when the artifact-tool path succeeds)
 
-Print a **short summary only** — never the full per-group listing
+Print a **short summary only** — never the full per-module listing
 duplicated:
 
-- The `stats` block's headline counts (total entries, per-group counts,
+- The `stats` block's headline counts (total entries, per-module counts,
   steering-decisions count).
 - The published artifact's URL.
 - Any `caveats[]` present, named explicitly (never silently absorbed into a
   clean-looking summary — rule 2).
-- The network-exposure statement (§6 below) — **every run this path is
+- One clause stating which view the published page opened in — *"opened in
+  {simple|verbose} view — the on-page toggle switches either way"* — never
+  a duplicate of the full listing.
+- The network-exposure statement (§7 below) — **every run this path is
   taken**, not once.
 
-## 6. Network exposure — state this every run this path is taken
+## 7. Network exposure — state this every run this path is taken
 
 **This is the most personal content Sarathi has ever sent off-machine, and
 the disclosure must read that way — at least as pointed as `/sarathi:report`'s
@@ -216,14 +265,19 @@ substance, at least:
   fully local.
 - **Artifacts start private**, shareable only if you later choose to.
 - **Username redaction**: the orphan `source` field is always the trimmed
-  slug (§4) — the raw slug, which embeds your local OS username, never
+  slug (§5) — the raw slug, which embeds your local OS username, never
   leaves this machine.
 - **Two living artifacts now exist off-machine if you run both skills** —
   worth naming explicitly the first time `/sarathi:memory` publishes: this
   is a *second* artifact, independent of "Sarathi — Direction Report," not
   a replacement for it.
+- **Verbose view is a local rendering choice, not additional network
+  exposure.** Both densities render the same already-sent payload; whether
+  a reader opens verbose by default (`--verbose`) or reaches it via the
+  on-page toggle, nothing extra is fetched or sent — verbose just surfaces
+  fields simple view was hiding, in the browser, from data already there.
 
-## 7. What this skill never does
+## 8. What this skill never does
 
 - Never calls `AskUserQuestion` — `allowed-tools` omits it entirely, on
   purpose. This skill asks nothing, ever.

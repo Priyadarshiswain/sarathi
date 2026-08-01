@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """build_ledger_payload.py — deterministic, mechanical assembly of the
-Sarathi memory-ledger payload (story SAR-05, §6) from the fact sheet
-`sarathi.py measure` already wrote.
+Sarathi memory-ledger payload (story SAR-05 §6, amended by SAR-06 §6) from
+the fact sheet `sarathi.py measure` already wrote.
 
 Pure Python 3, stdlib only. No network calls, ever. One pure function:
 
-    build_payload(fact_sheet) -> payload
+    build_payload(fact_sheet, default_view="simple") -> payload
 
 plus a CLI wrapping it, invoked by skills/memory/SKILL.md's §4 the same
 way that skill already shells out to sarathi.py and
@@ -22,11 +22,20 @@ isolation — see the story's "Implementation handoff" section).
 SKILL.md's own publish step invokes this script exactly the way it
 already invokes render_report.py; it never re-derives this walk by hand.
 
-sarathi.py itself has zero diff in this story (SAR-05 §3) — this script
-only *reads* the fact sheet sarathi.py already writes. `slug()` below is
-copied verbatim from sarathi.py's own slug(), not imported, so this
-script stays a standalone, dependency-free CLI — the same posture
-render_report.py already takes relative to sarathi.py.
+SAR-06 amends this file two ways (its own §3, the one file in the memory
+skill that story explicitly expects to change): the five-group bucketing
+rule collapses to three fixed modules (`setup` / `working_style` /
+`project_memory`, §6 below), and `build_payload()`/the CLI gain an
+explicit `default_view` input (`"simple"` or `"verbose"`) written into
+`meta.default_view` — never inferred from `config.json` or any fact-sheet
+field, only from this explicit parameter/flag (SAR-06 §6's field-mapping
+table).
+
+sarathi.py itself has zero diff in this story (SAR-05 §3, SAR-06 §3) —
+this script only *reads* the fact sheet sarathi.py already writes.
+`slug()` below is copied verbatim from sarathi.py's own slug(), not
+imported, so this script stays a standalone, dependency-free CLI — the
+same posture render_report.py already takes relative to sarathi.py.
 """
 import argparse
 import json
@@ -34,16 +43,22 @@ import os
 import re
 import sys
 
-# -- fixed, pinned shape (SAR-05 §6) ----------------------------------------
-GROUP_ORDER = ["user", "feedback", "project", "reference", "untyped"]
-GROUP_LABELS = {
-    "user": "about you",
-    "feedback": "working style",
-    "project": "project state",
-    "reference": "reference",
-    "untyped": "untyped",
+# -- fixed, pinned shape (SAR-06 §6, supersedes SAR-05's five-group table) --
+MODULE_ORDER = ["setup", "working_style", "project_memory"]
+MODULE_LABELS = {
+    "setup": "dev setup",
+    "working_style": "working style",
+    "project_memory": "project memory",
 }
-KNOWN_TYPES = {"user", "feedback", "project", "reference"}
+# Each module's native `type` value — the fixed constant the front-end
+# chip rule keys off (never re-derived from an entry actually present in
+# that module; SAR-06 §6 acceptance criterion 5).
+MODULE_NATIVE_TYPE = {
+    "setup": "setup",
+    "working_style": "feedback",
+    "project_memory": "project",
+}
+DEFAULT_VIEWS = ("simple", "verbose")
 
 
 def slug(path):
@@ -58,15 +73,21 @@ def slug(path):
 
 
 def bucket_for_type(type_value):
-    """Fixed rule (SAR-05 §6, acceptance criteria 1-2): match exactly,
-    case-sensitively, against the four known literals; anything else —
-    including the literal "untyped" default sarathi.py itself writes when
-    a memory file's frontmatter carries no `type` key, and any other
-    free-text value a hand-written frontmatter `type:` line could carry —
-    sorts into `untyped`. This function only decides *where* an entry is
-    grouped; the caller is responsible for copying the entry's own `type`
-    field into the payload unrewritten (criterion 2's negative check)."""
-    return type_value if type_value in KNOWN_TYPES else "untyped"
+    """Fixed rule (SAR-06 §6, acceptance criteria 1-2, supersedes SAR-05's
+    bucket_for_type()): `"setup"` (exact, case-sensitive) sorts into the
+    `setup` module; `"feedback"` or `"user"` sort into `working_style`;
+    everything else — `"project"`, `"reference"`, the literal `"untyped"`
+    default sarathi.py itself writes when a memory file's frontmatter
+    carries no `type` key, and any other free-text value a hand-written
+    frontmatter `type:` line could carry — sorts into `project_memory`.
+    This function only decides *where* an entry is grouped; the caller is
+    responsible for copying the entry's own `type` field into the payload
+    unrewritten (criterion 2's negative check)."""
+    if type_value == "setup":
+        return "setup"
+    if type_value in ("feedback", "user"):
+        return "working_style"
+    return "project_memory"
 
 
 def _match_root(raw_slug, roots):
@@ -100,7 +121,7 @@ def _trim_orphan_slug(raw_slug, roots):
 
 
 def _entry_payload(entry, source, source_kind):
-    """One `groups[*].entries[]` item — every string field copied
+    """One `modules[*].entries[]` item — every string field copied
     verbatim (acceptance criterion 4: no truncation beyond what
     sarathi.py itself already applied, no paraphrase, no voice
     adjustment)."""
@@ -168,31 +189,39 @@ def _root_caveat(raw_slug, roots, source, source_kind):
             "status": status, "reason": reason}
 
 
-def build_payload(fact_sheet):
+def build_payload(fact_sheet, default_view="simple"):
     """The one pure function this script exists for. `fact_sheet` is the
     full JSON object `sarathi.py measure` writes (top-level
     `schema_version`/`run`/`facts`) — exactly what `--facts` points at.
+    `default_view` (SAR-06 §6, new this story) is an explicit,
+    non-fact-sheet-derived input — `"simple"` by default, matching the
+    CLI's own default — written straight into `meta.default_view`; never
+    read from `config.json` or any fact-sheet field (acceptance
+    criterion 9).
 
     Reads only the documented paths (acceptance criterion 9):
     facts.projects.*.memory, facts.projects.*.decisions,
     facts.orphans.entries[*].memory, facts.orphans.entries[*].decisions,
-    facts.roots, facts.as_of, and run.generated_at. `facts.steer_candidates`
-    and every other unrelated field is never read.
+    facts.roots, facts.as_of, run.generated_at, and the explicit
+    `default_view` argument. `facts.steer_candidates` and every other
+    unrelated field is never read.
 
-    Deterministic given the same input (rule 1): same fact sheet ->
-    byte-identical payload, every time — no randomness, no session-order
-    dependence, no wall-clock read of its own. Ordering follows the fact
-    sheet's own already-deterministic structure (SAR-05 §6): projects in
-    key order, then orphans in the fact sheet's own list order, then
-    within a source in the order sarathi.py already wrote its entries —
-    never independently re-sorted here.
+    Deterministic given the same input (rule 1): same fact sheet + same
+    `default_view` -> byte-identical payload, every time — no randomness,
+    no session-order dependence, no wall-clock read of its own. Ordering
+    follows the fact sheet's own already-deterministic structure (SAR-05
+    §6, restated by SAR-06 §11 criterion 10): projects in key order, then
+    orphans in the fact sheet's own list order, then within a source in
+    the order sarathi.py already wrote its entries — never independently
+    re-sorted here, and never re-sorted *within* a module by the new
+    three-way bucketing either.
     """
     facts = fact_sheet["facts"]
     as_of = facts["as_of"]
     generated_at = fact_sheet["run"]["generated_at"]
     roots = facts.get("roots", {}) or {}
 
-    groups = {t: [] for t in GROUP_ORDER}
+    modules = {m: [] for m in MODULE_ORDER}
     decisions = []
     caveats = []
     sources_with_memory = 0
@@ -213,8 +242,8 @@ def build_payload(fact_sheet):
         if entries:
             sources_with_memory += 1
         for entry in entries:
-            bucket = bucket_for_type(entry.get("type", "untyped"))
-            groups[bucket].append(_entry_payload(entry, key, "project"))
+            module_key = bucket_for_type(entry.get("type", "untyped"))
+            modules[module_key].append(_entry_payload(entry, key, "project"))
         caveat = _memory_caveat(memory_sub.get("status"), memory_sub.get("reason"), key, "project")
         if caveat:
             caveats.append(caveat)
@@ -238,8 +267,8 @@ def build_payload(fact_sheet):
         if entries:
             sources_with_memory += 1
         for entry in entries:
-            bucket = bucket_for_type(entry.get("type", "untyped"))
-            groups[bucket].append(_entry_payload(entry, source, "orphan"))
+            module_key = bucket_for_type(entry.get("type", "untyped"))
+            modules[module_key].append(_entry_payload(entry, source, "orphan"))
         caveat = _memory_caveat(orphan.get("status"), orphan.get("reason"), source, "orphan")
         if caveat:
             caveats.append(caveat)
@@ -256,8 +285,8 @@ def build_payload(fact_sheet):
         if caveat:
             caveats.append(caveat)
 
-    by_group = {t: len(groups[t]) for t in GROUP_ORDER}
-    total_entries = sum(by_group.values())
+    by_module = {m: len(modules[m]) for m in MODULE_ORDER}
+    total_entries = sum(by_module.values())
 
     hh_mm = generated_at[11:16] if len(generated_at) >= 16 else ""
     version_label = "{0} · {1} UTC".format(as_of, hh_mm)
@@ -267,16 +296,22 @@ def build_payload(fact_sheet):
             "as_of": as_of,
             "generated_at": generated_at,
             "version_label": version_label,
+            "default_view": default_view,
         },
         "stats": {
             "total_entries": total_entries,
-            "by_group": by_group,
+            "by_module": by_module,
             "sources_with_memory": sources_with_memory,
             "steering_decisions": len(decisions),
         },
-        "groups": [
-            {"type": t, "label": GROUP_LABELS[t], "entries": groups[t]}
-            for t in GROUP_ORDER
+        "modules": [
+            {
+                "key": m,
+                "label": MODULE_LABELS[m],
+                "native_type": MODULE_NATIVE_TYPE[m],
+                "entries": modules[m],
+            }
+            for m in MODULE_ORDER
         ],
         "decisions": decisions,
         "caveats": caveats,
@@ -287,6 +322,10 @@ def main(argv=None):
     parser = argparse.ArgumentParser(prog="build_ledger_payload.py")
     parser.add_argument("--facts", required=True,
                          help="path to the fact sheet sarathi.py measure wrote")
+    parser.add_argument("--default-view", choices=list(DEFAULT_VIEWS), default="simple",
+                         help="initial display density the rendered page opens in "
+                              "(SAR-06 §6/§8) -- an invalid value is a loud, non-zero-exit "
+                              "argparse failure, never silently coerced (rule 2)")
     parser.add_argument("--out", default=None,
                          help="write the payload JSON to this path instead of stdout")
     args = parser.parse_args(argv)
@@ -294,7 +333,7 @@ def main(argv=None):
     with open(args.facts, "r", encoding="utf-8") as fh:
         fact_sheet = json.load(fh)
 
-    payload = build_payload(fact_sheet)
+    payload = build_payload(fact_sheet, default_view=args.default_view)
     text = json.dumps(payload, indent=2, sort_keys=True, ensure_ascii=False)
 
     if args.out:

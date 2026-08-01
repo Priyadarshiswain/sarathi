@@ -607,7 +607,7 @@ class TestPluginManifests(unittest.TestCase):
         with open(path, encoding="utf-8") as fh:
             data = json.load(fh)
         self.assertEqual(data["name"], "sarathi")
-        self.assertEqual(data["version"], "0.5.0")
+        self.assertEqual(data["version"], "0.6.0")
 
     def test_marketplace_json_valid(self):
         plugin_path = os.path.join(REPO_ROOT, ".claude-plugin", "plugin.json")
@@ -1576,6 +1576,18 @@ class TestRenderReportCLI(unittest.TestCase):
 # one-line bump SAR-02/03/04 each already introduced for their own version
 # transitions. sarathi.py and skills/report/render_report.py both have zero
 # diff in this story (SAR-05 §3/§7), so nothing else above this line changed.
+#
+# SAR-06 amendment (§12 of SAR-06): the block below is further amended in
+# place -- five groups collapse to three modules, the raw-type chip rule
+# generalizes, and simple/verbose views are added to
+# build_ledger_payload.py/ledger-template.html/SKILL.md. The version
+# literal in TestPluginManifests.test_plugin_json_valid (above this banner)
+# takes one further one-line bump, "0.5.0" -> "0.6.0", per this story's own
+# instructions -- the only edit this story makes above this banner.
+# sarathi.py, skills/report/render_report.py, skills/report/SKILL.md,
+# skills/report/report-template.html, and docs/config-schema.md all keep
+# zero diff in this story too (SAR-06 §3/§7/§10, criterion 37) -- fingerprint
+# constants for all five live just below.
 # ----------------------------------------------------------------------------
 MEMORY_SKILL_DIR = os.path.join(REPO_ROOT, "skills", "memory")
 if MEMORY_SKILL_DIR not in sys.path:
@@ -1592,31 +1604,50 @@ LEDGER_TEMPLATE_PATH = os.path.join(REPO_ROOT, "skills", "memory", "ledger-templ
 # render_report.py -- accidental or not -- breaks this test immediately.
 RENDER_REPORT_PY_SHA256 = "77350c1e50183868312bc108c051034e6fa94e42fac95f2851ad7b0ebbab4bc5"
 
+# SAR-06 criterion 37: sarathi.py, skills/report/*, and docs/config-schema.md
+# all have zero diff in this story too -- fingerprints taken from the
+# SAR-05-shipped files on disk before this story touched anything else in
+# the repo, same rationale as RENDER_REPORT_PY_SHA256 above (no git command
+# available to this story's coder).
+SARATHI_PY_SHA256 = "5db339fc885be9de1b51d8f39035e4631ef8346ad66cc6fc5e891192be1da926"
+REPORT_SKILL_MD_SHA256 = "589a809cd742921470c9aba23145a51879ebfce522e78465882d39f151663149"
+REPORT_TEMPLATE_HTML_SHA256 = "ec461323557bbcd23764a3ef1ef9e49a13591dd583ac3a771853064ceddbd62c"
+CONFIG_SCHEMA_MD_SHA256 = "7ebd1db1cec3460ca8e14248f52461181134a463493b93be8f5da50ef294edd0"
+
 
 def _read_ledger_template():
     with open(LEDGER_TEMPLATE_PATH, encoding="utf-8") as fh:
         return fh.read()
 
 
-# The §6-pinned ledger payload example, copied verbatim as a fixture -- never
-# live data (mirrors PINNED_PAYLOAD_EXAMPLE's role for the report above).
+# The SAR-06 §6-pinned ledger payload example, copied verbatim as a fixture
+# -- never live data (mirrors PINNED_PAYLOAD_EXAMPLE's role for the report
+# above). Supersedes SAR-05's own PINNED_LEDGER_PAYLOAD_EXAMPLE (groups ->
+# modules, meta.default_view added).
 PINNED_LEDGER_PAYLOAD_EXAMPLE = {
     "meta": {
         "as_of": "2026-08-01",
         "generated_at": "2026-08-01T14:32:07Z",
         "version_label": "2026-08-01 · 14:32 UTC",
+        "default_view": "simple",
     },
     "stats": {
-        "total_entries": 14,
-        "by_group": {"user": 1, "feedback": 3, "project": 6, "reference": 2, "untyped": 2},
+        "total_entries": 15,
+        "by_module": {"setup": 0, "working_style": 2, "project_memory": 3},
         "sources_with_memory": 5,
         "steering_decisions": 3,
     },
-    "groups": [
-        {"type": "user", "label": "about you", "entries": []},
+    "modules": [
         {
-            "type": "feedback",
+            "key": "setup",
+            "label": "dev setup",
+            "native_type": "setup",
+            "entries": [],
+        },
+        {
+            "key": "working_style",
             "label": "working style",
+            "native_type": "feedback",
             "entries": [
                 {
                     "name": "git-publish-hands-off",
@@ -1627,12 +1658,23 @@ PINNED_LEDGER_PAYLOAD_EXAMPLE = {
                     "source": "tokenomics",
                     "source_kind": "project",
                     "threads": [],
-                }
+                },
+                {
+                    "name": "measure-before-recommending",
+                    "desc": "This user probes everything; lead with evidence, flag guesses, "
+                            "keep it plain",
+                    "date": "2026-07-30",
+                    "type": "user",
+                    "source": "tokenomics",
+                    "source_kind": "project",
+                    "threads": [],
+                },
             ],
         },
         {
-            "type": "project",
-            "label": "project state",
+            "key": "project_memory",
+            "label": "project memory",
+            "native_type": "project",
             "entries": [
                 {
                     "name": "tokenomics-release-refs",
@@ -1642,14 +1684,17 @@ PINNED_LEDGER_PAYLOAD_EXAMPLE = {
                     "source": "tokenomics",
                     "source_kind": "project",
                     "threads": ["not shipped: public-repo flip still pending"],
-                }
-            ],
-        },
-        {"type": "reference", "label": "reference", "entries": []},
-        {
-            "type": "untyped",
-            "label": "untyped",
-            "entries": [
+                },
+                {
+                    "name": "tokenomics-two-package-repo",
+                    "desc": "Claude and Codex stay independent; identify the platform before "
+                            "editing",
+                    "date": "2026-07-25",
+                    "type": "reference",
+                    "source": "tokenomics",
+                    "source_kind": "project",
+                    "threads": [],
+                },
                 {
                     "name": "old-thing-notes",
                     "desc": "Half-finished spike notes, no frontmatter type ever set",
@@ -1658,7 +1703,7 @@ PINNED_LEDGER_PAYLOAD_EXAMPLE = {
                     "source": "old-thing",
                     "source_kind": "orphan",
                     "threads": [],
-                }
+                },
             ],
         },
     ],
@@ -1747,61 +1792,93 @@ def _fact_sheet(as_of="2026-08-01", generated_at="2026-08-01T14:32:07Z",
     }
 
 
-class TestLedgerBucketing(unittest.TestCase):
-    """Criteria 1-2: bucket_for_type()/build_payload() grouping."""
+class TestLedgerModuleBucketing(unittest.TestCase):
+    """Criteria 1-2 (SAR-06 §6, supersedes SAR-05's TestLedgerBucketing):
+    bucket_for_type()/build_payload() three-way module grouping."""
 
-    def test_group_bucketing_known_types(self):
+    def test_module_bucketing_known_types(self):
         projects = {
             "proj-a": _project_entry(memory_entries=[
-                _memory_entry(name="u1", type_val="user"),
+                _memory_entry(name="s1", type_val="setup"),
                 _memory_entry(name="f1", type_val="feedback"),
+                _memory_entry(name="u1", type_val="user"),
                 _memory_entry(name="p1", type_val="project"),
-                _memory_entry(name="r1", type_val="reference"),
             ]),
         }
         payload = build_ledger_payload.build_payload(_fact_sheet(projects=projects))
-        by_type = {g["type"]: [e["name"] for e in g["entries"]] for g in payload["groups"]}
-        self.assertEqual(by_type["user"], ["u1"])
-        self.assertEqual(by_type["feedback"], ["f1"])
-        self.assertEqual(by_type["project"], ["p1"])
-        self.assertEqual(by_type["reference"], ["r1"])
-        self.assertEqual(by_type["untyped"], [])
+        by_key = {m["key"]: [e["name"] for e in m["entries"]] for m in payload["modules"]}
+        self.assertEqual(by_key["setup"], ["s1"])
+        # feedback and user both land in working_style, in the order the
+        # source fact sheet already carried them.
+        self.assertEqual(by_key["working_style"], ["f1", "u1"])
+        self.assertEqual(by_key["project_memory"], ["p1"])
 
-    def test_group_bucketing_falls_through_to_untyped(self):
+    def test_module_bucketing_falls_through_to_project_memory(self):
         projects = {
             "proj-a": _project_entry(memory_entries=[
+                _memory_entry(name="ref1", type_val="reference"),
                 _memory_entry(name="def", type_val="untyped"),
                 _memory_entry(name="scratch-note", type_val="scratch"),
             ]),
         }
         payload = build_ledger_payload.build_payload(_fact_sheet(projects=projects))
-        untyped_group = next(g for g in payload["groups"] if g["type"] == "untyped")
-        names = [e["name"] for e in untyped_group["entries"]]
-        self.assertEqual(names, ["def", "scratch-note"])
-        raw_types = {e["name"]: e["type"] for e in untyped_group["entries"]}
-        # criterion 2: the raw type field is never rewritten to match the bucket.
-        self.assertEqual(raw_types["scratch-note"], "scratch")
+        project_memory = next(m for m in payload["modules"] if m["key"] == "project_memory")
+        names = [e["name"] for e in project_memory["entries"]]
+        self.assertEqual(names, ["ref1", "def", "scratch-note"])
+        raw_types = {e["name"]: e["type"] for e in project_memory["entries"]}
+        # criterion 2: the raw type field is never rewritten to match the module.
+        self.assertEqual(raw_types["ref1"], "reference")
         self.assertEqual(raw_types["def"], "untyped")
+        self.assertEqual(raw_types["scratch-note"], "scratch")
 
 
-class TestLedgerGroupsAlwaysPresent(unittest.TestCase):
-    """Criterion 3."""
+class TestLedgerModulesAlwaysPresent(unittest.TestCase):
+    """Criterion 3 (SAR-06 §6, supersedes SAR-05's TestLedgerGroupsAlwaysPresent)."""
 
-    def test_all_five_groups_always_present_in_fixed_order(self):
+    def test_all_three_modules_always_present_in_fixed_order(self):
         payload = build_ledger_payload.build_payload(_fact_sheet())
-        types = [g["type"] for g in payload["groups"]]
-        self.assertEqual(types, ["user", "feedback", "project", "reference", "untyped"])
-        labels = {g["type"]: g["label"] for g in payload["groups"]}
+        keys = [m["key"] for m in payload["modules"]]
+        self.assertEqual(keys, ["setup", "working_style", "project_memory"])
+        labels = {m["key"]: m["label"] for m in payload["modules"]}
         self.assertEqual(labels, {
-            "user": "about you", "feedback": "working style", "project": "project state",
-            "reference": "reference", "untyped": "untyped",
+            "setup": "dev setup", "working_style": "working style",
+            "project_memory": "project memory",
         })
-        for g in payload["groups"]:
-            self.assertEqual(g["entries"], [])
+        for m in payload["modules"]:
+            self.assertEqual(m["entries"], [])
+
+
+class TestLedgerModuleNativeType(unittest.TestCase):
+    """Criterion 5 (wholly new): each module's native_type is a fixed
+    constant, never derived from any entry actually present in that
+    module."""
+
+    def test_module_native_type_is_pinned_constant(self):
+        # Populate every module with an entry whose own `type` differs from
+        # the module's native_type, to prove native_type isn't derived from
+        # what's actually inside the module.
+        projects = {
+            "p": _project_entry(memory_entries=[
+                _memory_entry(name="s1", type_val="setup"),
+                _memory_entry(name="u1", type_val="user"),
+                _memory_entry(name="r1", type_val="reference"),
+            ]),
+        }
+        payload = build_ledger_payload.build_payload(_fact_sheet(projects=projects))
+        native_types = {m["key"]: m["native_type"] for m in payload["modules"]}
+        self.assertEqual(native_types, {
+            "setup": "setup", "working_style": "feedback", "project_memory": "project",
+        })
+
+        # Same constants hold even with no entries at all in any module.
+        empty_payload = build_ledger_payload.build_payload(_fact_sheet())
+        empty_native_types = {m["key"]: m["native_type"] for m in empty_payload["modules"]}
+        self.assertEqual(empty_native_types, native_types)
 
 
 class TestLedgerEntryFidelity(unittest.TestCase):
-    """Criterion 4."""
+    """Criterion 4 (mechanical groups->modules rename; fidelity assertions
+    themselves untouched from SAR-05)."""
 
     def test_entry_fields_copied_verbatim(self):
         entry = _memory_entry(
@@ -1812,7 +1889,7 @@ class TestLedgerEntryFidelity(unittest.TestCase):
         )
         projects = {"tokenomics": _project_entry(memory_entries=[entry])}
         payload = build_ledger_payload.build_payload(_fact_sheet(projects=projects))
-        out = next(g for g in payload["groups"] if g["type"] == "feedback")["entries"][0]
+        out = next(m for m in payload["modules"] if m["key"] == "working_style")["entries"][0]
         self.assertEqual(out["name"], entry["name"])
         self.assertEqual(out["desc"], entry["desc"])
         self.assertEqual(out["date"], entry["date"])
@@ -1821,13 +1898,14 @@ class TestLedgerEntryFidelity(unittest.TestCase):
 
 
 class TestLedgerVoiceHasNoEffect(unittest.TestCase):
-    """Criterion 5: build_payload() takes only a fact sheet -- config.json
-    (and therefore `voice`) is never read, so it structurally cannot affect
-    this payload."""
+    """Criterion 6 (extends SAR-05 criterion 5): build_payload() takes only
+    a fact sheet plus the explicit `default_view` input -- config.json (and
+    therefore `voice`) is never read, so it structurally cannot affect
+    either this payload or its `default_view` value."""
 
     def test_voice_has_no_effect_on_ledger_payload(self):
         sig = inspect.signature(build_ledger_payload.build_payload)
-        self.assertEqual(list(sig.parameters), ["fact_sheet"])
+        self.assertEqual(list(sig.parameters), ["fact_sheet", "default_view"])
         payload = build_ledger_payload.build_payload(_fact_sheet())
         self.assertNotIn("voice", payload["meta"])
 
@@ -1836,9 +1914,25 @@ class TestLedgerVoiceHasNoEffect(unittest.TestCase):
         p2 = build_ledger_payload.build_payload(fs)
         self.assertEqual(p1, p2)
 
+        # default_view is an explicit input, never voice-derived: the same
+        # fact sheet with different default_view values still produces
+        # identical payloads apart from that one field.
+        p_simple = build_ledger_payload.build_payload(fs, default_view="simple")
+        p_verbose = build_ledger_payload.build_payload(fs, default_view="verbose")
+        self.assertEqual(p_simple["meta"]["default_view"], "simple")
+        self.assertEqual(p_verbose["meta"]["default_view"], "verbose")
+        p_simple_no_meta = dict(p_simple)
+        p_verbose_no_meta = dict(p_verbose)
+        p_simple_no_meta["meta"] = dict(p_simple["meta"])
+        p_verbose_no_meta["meta"] = dict(p_verbose["meta"])
+        del p_simple_no_meta["meta"]["default_view"]
+        del p_verbose_no_meta["meta"]["default_view"]
+        self.assertEqual(p_simple_no_meta, p_verbose_no_meta)
+
 
 class TestLedgerSourceFields(unittest.TestCase):
-    """Criteria 6-7."""
+    """Criteria 7 (mechanical groups->modules rename; source/source_kind
+    assertions themselves untouched from SAR-05)."""
 
     def test_project_source_is_key_orphan_source_is_trimmed_slug(self):
         root = "/Users/alice/Projects"
@@ -1849,7 +1943,7 @@ class TestLedgerSourceFields(unittest.TestCase):
         roots = {root: {"status": "ok", "reason": None, "projects": 1}}
         payload = build_ledger_payload.build_payload(
             _fact_sheet(projects=projects, orphans=orphans, roots=roots))
-        all_entries = [e for g in payload["groups"] for e in g["entries"]]
+        all_entries = [e for m in payload["modules"] for e in m["entries"]]
         proj_entry = next(e for e in all_entries if e["name"] == "p1")
         orphan_entry = next(e for e in all_entries if e["name"] == "o1")
         self.assertEqual(proj_entry["source"], "tokenomics")
@@ -1861,8 +1955,8 @@ class TestLedgerSourceFields(unittest.TestCase):
 
 
 class TestLedgerFailedProjectSkipped(TempDirCase):
-    """Criterion 8, real sarathi.py fixture (mirrors TestFailedEntryShape's
-    own technique above)."""
+    """Criterion 8 (mechanical groups->modules rename), real sarathi.py
+    fixture (mirrors TestFailedEntryShape's own technique above)."""
 
     def test_failed_project_entry_skipped_without_error(self):
         missing_child = os.path.join(self.projects_root, "vanished-child")
@@ -1876,7 +1970,7 @@ class TestLedgerFailedProjectSkipped(TempDirCase):
             "ok-proj": _project_entry(memory_entries=[_memory_entry(name="still-here")]),
         }
         payload = build_ledger_payload.build_payload(_fact_sheet(projects=projects))
-        all_names = [e["name"] for g in payload["groups"] for e in g["entries"]]
+        all_names = [e["name"] for m in payload["modules"] for e in m["entries"]]
         self.assertEqual(all_names, ["still-here"])  # no crash, no contribution
 
 
@@ -1938,11 +2032,34 @@ class TestLedgerPayloadDeterminism(unittest.TestCase):
         j2 = json.dumps(p2, sort_keys=True, ensure_ascii=False)
         self.assertEqual(j1, j2)
 
+    def test_payload_deterministic_same_input_and_default_view(self):
+        """Criterion 17 (SAR-06, wholly new, extends the test above to the
+        new explicit `default_view` input): same fact sheet + same
+        `default_view` -> byte-identical payload, for both possible views."""
+        projects = {
+            "p": _project_entry(memory_entries=[
+                _memory_entry(name="n1"), _memory_entry(name="n2", type_val="feedback"),
+            ]),
+        }
+        fs = _fact_sheet(projects=projects)
+        for view in ("simple", "verbose"):
+            p1 = build_ledger_payload.build_payload(fs, default_view=view)
+            p2 = build_ledger_payload.build_payload(fs, default_view=view)
+            self.assertEqual(p1, p2)
+            self.assertEqual(p1["meta"]["default_view"], view)
+            j1 = json.dumps(p1, sort_keys=True, ensure_ascii=False)
+            j2 = json.dumps(p2, sort_keys=True, ensure_ascii=False)
+            self.assertEqual(j1, j2)
+
 
 class TestLedgerOrdering(unittest.TestCase):
-    """Criteria 11-12."""
+    """Criterion 10 (SAR-06, restates SAR-05 criteria 11-12 unchanged,
+    reapplied to modules; also covers the new interleaving case: entries of
+    different raw types that now share one module must keep their
+    project's own entry order, never be regrouped by type within the
+    module)."""
 
-    def test_group_and_decision_ordering(self):
+    def test_module_and_decision_ordering(self):
         projects = {
             "zeta": _project_entry(
                 memory_entries=[_memory_entry(name="z1", type_val="project")],
@@ -1963,17 +2080,34 @@ class TestLedgerOrdering(unittest.TestCase):
         payload = build_ledger_payload.build_payload(
             _fact_sheet(projects=projects, orphans=orphans))
 
-        project_group = next(g for g in payload["groups"] if g["type"] == "project")
-        names = [e["name"] for e in project_group["entries"]]
+        project_memory = next(m for m in payload["modules"] if m["key"] == "project_memory")
+        names = [e["name"] for e in project_memory["entries"]]
         # project-key order (alpha before zeta), THEN orphan-list order as given (b before a)
         self.assertEqual(names, ["a1", "z1", "b1", "a-orphan"])
 
         decided_sources = [(d["source"], d["source_file"]) for d in payload["decisions"]]
         self.assertEqual(decided_sources, [("alpha", "d2.md"), ("zeta", "d1.md")])
 
+    def test_interleaved_types_keep_source_order_within_module(self):
+        # alpha carries project- and reference-typed entries, interleaved,
+        # both of which now land in project_memory (SAR-06 §6) -- they must
+        # keep alpha's own entry order, never be regrouped by their own
+        # `type` within the module.
+        projects = {
+            "alpha": _project_entry(memory_entries=[
+                _memory_entry(name="a-ref", type_val="reference"),
+                _memory_entry(name="a-proj", type_val="project"),
+                _memory_entry(name="a-ref2", type_val="reference"),
+            ]),
+        }
+        payload = build_ledger_payload.build_payload(_fact_sheet(projects=projects))
+        project_memory = next(m for m in payload["modules"] if m["key"] == "project_memory")
+        names = [e["name"] for e in project_memory["entries"]]
+        self.assertEqual(names, ["a-ref", "a-proj", "a-ref2"])
+
 
 class TestLedgerStats(unittest.TestCase):
-    """Criterion 13."""
+    """Criterion 11 (SAR-06, supersedes SAR-05 criterion 13)."""
 
     def test_stats_counts_match_arrays(self):
         projects = {
@@ -1988,10 +2122,19 @@ class TestLedgerStats(unittest.TestCase):
         payload = build_ledger_payload.build_payload(
             _fact_sheet(projects=projects, orphans=orphans))
 
-        total_from_groups = sum(len(g["entries"]) for g in payload["groups"])
-        self.assertEqual(payload["stats"]["total_entries"], total_from_groups)
-        for g in payload["groups"]:
-            self.assertEqual(payload["stats"]["by_group"][g["type"]], len(g["entries"]))
+        # u -> working_style, f -> working_style, pr -> project_memory,
+        # unt (a free-text "weird" type) -> project_memory.
+        by_key = {m["key"]: [e["name"] for e in m["entries"]] for m in payload["modules"]}
+        self.assertEqual(by_key["setup"], [])
+        self.assertEqual(by_key["working_style"], ["u", "f"])
+        self.assertEqual(by_key["project_memory"], ["pr", "unt"])
+
+        total_from_modules = sum(len(m["entries"]) for m in payload["modules"])
+        self.assertEqual(payload["stats"]["total_entries"], total_from_modules)
+        for m in payload["modules"]:
+            self.assertEqual(payload["stats"]["by_module"][m["key"]], len(m["entries"]))
+        self.assertEqual(set(payload["stats"]["by_module"]),
+                          {"setup", "working_style", "project_memory"})
         self.assertEqual(payload["stats"]["steering_decisions"], len(payload["decisions"]))
 
 
@@ -2079,11 +2222,50 @@ class TestLedgerTemplateStaticStructure(unittest.TestCase):
         self.assertNotIn("/home/", self.template)
 
 
+class TestLedgerTemplateModuleSectionsAndToggle(unittest.TestCase):
+    """SAR-06 §11 criteria 22-23, wholly new: the amended template's three
+    module sections, the view-toggle markup, and the generalized
+    (native_type-driven) chip comparison, all as static/source-text checks.
+    Rendered-pixel behavior remains reviewer-verified in a real browser,
+    same code/reviewer split SAR-05 drew for its own criterion 40."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.template = _read_ledger_template()
+
+    def test_ledger_template_has_three_module_sections_and_view_toggle_markup(self):
+        # Exactly three module section blocks, one per modules[*].key.
+        self.assertEqual(self.template.count("sl-module-sec"), 3)
+        for key in ("setup", "working_style", "project_memory"):
+            self.assertIn('id="module-{0}"'.format(key), self.template)
+        # A header-level view-toggle control, present regardless of which
+        # view is initially selected -- both buttons ship in the static
+        # markup; only the payload's meta.default_view picks the initial
+        # active one at render time.
+        self.assertIn('id="sl-view-toggle"', self.template)
+        self.assertIn('data-view="simple"', self.template)
+        self.assertIn('data-view="verbose"', self.template)
+
+    def test_ledger_template_chip_logic_reads_native_type_from_payload(self):
+        # The chip-rendering comparison must read each module's own
+        # native_type out of the payload -- never three separately
+        # hardcoded per-module literals (`!== "setup"`, `!== "feedback"`,
+        # `!== "project"` typed out three times).
+        self.assertIn("nativeType", self.template)
+        self.assertIn("entry.type !== nativeType", self.template)
+        self.assertIn("module.native_type", self.template)
+        for hardcoded in ('!== "setup"', "!== 'setup'",
+                           '!== "feedback"', "!== 'feedback'",
+                           '!== "project"', "!== 'project'"):
+            self.assertNotIn(hardcoded, self.template)
+
+
 class TestRenderReportPyUnchanged(unittest.TestCase):
-    """Criterion 21: render_report.py has zero diff in this story. Compared
-    by content hash (not `git diff`, since this story's coder is barred from
-    running any git command) against the fingerprint recorded above, taken
-    from the SAR-04-shipped file before this story touched anything else."""
+    """Criterion 19 (SAR-06, restates SAR-05 criterion 21 unchanged):
+    render_report.py has zero diff in this story. Compared by content hash
+    (not `git diff`, since this story's coder is barred from running any
+    git command) against the fingerprint recorded above, taken from the
+    SAR-04-shipped file before this story touched anything else."""
 
     def test_render_report_py_unchanged(self):
         with open(RENDER_REPORT_PATH, encoding="utf-8") as fh:
@@ -2091,21 +2273,42 @@ class TestRenderReportPyUnchanged(unittest.TestCase):
         digest = hashlib.sha256(source.encode("utf-8")).hexdigest()
         self.assertEqual(digest, RENDER_REPORT_PY_SHA256)
 
+    def test_render_report_skill_files_and_config_schema_doc_unchanged(self):
+        """Criterion 37 (SAR-06, wholly new, extends this class's own
+        pattern above): sarathi.py, skills/report/SKILL.md,
+        skills/report/report-template.html, and docs/config-schema.md all
+        have zero diff in this story too -- same content-hash technique,
+        same reason (no git command available to this story's coder)."""
+        checks = (
+            (SARATHI_PATH, SARATHI_PY_SHA256),
+            (os.path.join(REPO_ROOT, "skills", "report", "SKILL.md"), REPORT_SKILL_MD_SHA256),
+            (os.path.join(REPO_ROOT, "skills", "report", "report-template.html"),
+             REPORT_TEMPLATE_HTML_SHA256),
+            (os.path.join(REPO_ROOT, "docs", "config-schema.md"), CONFIG_SCHEMA_MD_SHA256),
+        )
+        for path, expected in checks:
+            with open(path, encoding="utf-8") as fh:
+                source = fh.read()
+            digest = hashlib.sha256(source.encode("utf-8")).hexdigest()
+            self.assertEqual(digest, expected, path)
+
 
 class TestLedgerPayloadExampleSchemaShape(unittest.TestCase):
-    """Criterion 22, mirrors TestPayloadExampleSchemaShape's pattern exactly,
-    pointed at the ledger template and this story's §6 pinned example."""
+    """Criterion 20 (SAR-06, supersedes SAR-05 criterion 22), mirrors
+    TestPayloadExampleSchemaShape's pattern exactly, pointed at the ledger
+    template and this story's §6 pinned example."""
 
     def test_ledger_payload_example_matches_pinned_schema_shape(self):
         payload = PINNED_LEDGER_PAYLOAD_EXAMPLE
         self.assertIn("meta", payload)
         self.assertIn("stats", payload)
-        self.assertIn("groups", payload)
+        self.assertIn("modules", payload)
         self.assertIn("decisions", payload)
         self.assertIn("caveats", payload)
         self.assertNotIn("voice", payload["meta"])
-        types = [g["type"] for g in payload["groups"]]
-        self.assertEqual(types, ["user", "feedback", "project", "reference", "untyped"])
+        self.assertIn("default_view", payload["meta"])
+        keys = [m["key"] for m in payload["modules"]]
+        self.assertEqual(keys, ["setup", "working_style", "project_memory"])
 
     def test_ledger_payload_example_renders_without_error(self):
         out = render_report.render_fragment(_read_ledger_template(), PINNED_LEDGER_PAYLOAD_EXAMPLE)
@@ -2114,7 +2317,8 @@ class TestLedgerPayloadExampleSchemaShape(unittest.TestCase):
 
 
 class TestRenderStandaloneLedger(unittest.TestCase):
-    """Criterion 23, mirrors test_render_report_cli_standalone_mode."""
+    """Criterion 21 (SAR-06, restates SAR-05 criterion 23 unchanged),
+    mirrors test_render_report_cli_standalone_mode."""
 
     def test_render_standalone_ledger_title_and_wrapper(self):
         out = render_report.render_standalone(
@@ -2174,6 +2378,79 @@ class TestBuildLedgerPayloadCLI(unittest.TestCase):
                 cli_payload = json.load(fh)
             direct_payload = build_ledger_payload.build_payload(fs)
             self.assertEqual(cli_payload, direct_payload)
+            # Both the CLI and the direct call agree when --default-view is
+            # omitted -- both default to "simple" (criterion 13).
+            self.assertEqual(cli_payload["meta"]["default_view"], "simple")
+
+    def test_default_view_defaults_to_simple(self):
+        """Criterion 13 (wholly new): the CLI with no --default-view flag
+        writes meta.default_view == "simple"."""
+        with tempfile.TemporaryDirectory() as tmp:
+            fs = _fact_sheet()
+            facts_path = os.path.join(tmp, "facts.json")
+            with open(facts_path, "w", encoding="utf-8") as fh:
+                json.dump(fs, fh)
+            out_path = os.path.join(tmp, "payload.json")
+            r = subprocess.run(
+                [sys.executable, os.path.join(MEMORY_SKILL_DIR, "build_ledger_payload.py"),
+                 "--facts", facts_path, "--out", out_path],
+                capture_output=True, text=True,
+            )
+            self.assertEqual(r.returncode, 0, r.stderr)
+            with open(out_path, encoding="utf-8") as fh:
+                payload = json.load(fh)
+            self.assertEqual(payload["meta"]["default_view"], "simple")
+
+    def test_default_view_cli_flag_sets_verbose(self):
+        """Criterion 14 (wholly new): --default-view verbose writes
+        meta.default_view == "verbose"."""
+        with tempfile.TemporaryDirectory() as tmp:
+            fs = _fact_sheet()
+            facts_path = os.path.join(tmp, "facts.json")
+            with open(facts_path, "w", encoding="utf-8") as fh:
+                json.dump(fs, fh)
+            out_path = os.path.join(tmp, "payload.json")
+            r = subprocess.run(
+                [sys.executable, os.path.join(MEMORY_SKILL_DIR, "build_ledger_payload.py"),
+                 "--facts", facts_path, "--default-view", "verbose", "--out", out_path],
+                capture_output=True, text=True,
+            )
+            self.assertEqual(r.returncode, 0, r.stderr)
+            with open(out_path, encoding="utf-8") as fh:
+                payload = json.load(fh)
+            self.assertEqual(payload["meta"]["default_view"], "verbose")
+
+    def test_default_view_invalid_value_rejected_by_cli(self):
+        """Criterion 15 (wholly new, rule 2): an unrecognized --default-view
+        value is a loud, non-zero-exit CLI failure -- argparse's own
+        choices= enforcement -- and no output file is written."""
+        with tempfile.TemporaryDirectory() as tmp:
+            fs = _fact_sheet()
+            facts_path = os.path.join(tmp, "facts.json")
+            with open(facts_path, "w", encoding="utf-8") as fh:
+                json.dump(fs, fh)
+            out_path = os.path.join(tmp, "payload.json")
+            r = subprocess.run(
+                [sys.executable, os.path.join(MEMORY_SKILL_DIR, "build_ledger_payload.py"),
+                 "--facts", facts_path, "--default-view", "loud", "--out", out_path],
+                capture_output=True, text=True,
+            )
+            self.assertNotEqual(r.returncode, 0)
+            self.assertFalse(os.path.exists(out_path))
+
+
+class TestBuildPayloadDefaultViewParameterDefault(unittest.TestCase):
+    """Criterion 16 (wholly new): build_payload(fact_sheet) called directly
+    with no second argument behaves identically to
+    build_payload(fact_sheet, default_view="simple") -- the default is a
+    real default, not something only the CLI layer supplies."""
+
+    def test_build_payload_default_view_parameter_has_default(self):
+        fs = _fact_sheet(projects={"p": _project_entry(memory_entries=[_memory_entry()])})
+        implicit = build_ledger_payload.build_payload(fs)
+        explicit = build_ledger_payload.build_payload(fs, default_view="simple")
+        self.assertEqual(implicit, explicit)
+        self.assertEqual(implicit["meta"]["default_view"], "simple")
 
 
 class TestMemorySkillFrontmatter(unittest.TestCase):
@@ -2206,14 +2483,15 @@ class TestMemorySkillEnvironmentNeutral(unittest.TestCase):
 
 
 class TestLedgerPluginJsonVersionBump(unittest.TestCase):
-    """Criterion 36, parallel to TestPluginManifests.test_plugin_json_valid
-    above (already updated to 0.5.0 for this story)."""
+    """Criterion 32 (SAR-06, supersedes SAR-05 criterion 36), parallel to
+    TestPluginManifests.test_plugin_json_valid above (already updated to
+    0.6.0 for this story)."""
 
     def test_plugin_json_version_bump(self):
         path = os.path.join(REPO_ROOT, ".claude-plugin", "plugin.json")
         with open(path, encoding="utf-8") as fh:
             data = json.load(fh)
-        self.assertEqual(data["version"], "0.5.0")
+        self.assertEqual(data["version"], "0.6.0")
 
 
 if __name__ == "__main__":
