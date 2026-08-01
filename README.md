@@ -37,10 +37,18 @@ each entry is visible by default. If you've started tagging your own memory note
 Sarathi requires — those entries land in the `dev setup` module; everyone else simply sees that
 module render "None recorded." until they adopt the same convention.
 
-**Current version: v0.6 — measure + doctor, a cited-interpretation report published as one**
-**redeployed artifact (or a local fallback file), steer + realign, and a second, independent**
-**living artifact — the memory ledger, three modules wide, with simple/verbose views —**
-**exposing every memory entry and decision verbatim.**
+Since v0.7, both installing and updating Sarathi are things you can ask Claude Code to do in a
+sentence, not command sequences you type yourself — the existing manual commands are kept as
+the explicit alternative, never removed. `/sarathi:doctor` also gained one more check at the
+very end of its own happy path: whether a newer tagged release exists on GitHub, offered as a
+consent-gated update. This is the fourth, and lightest, network exception Sarathi has shipped —
+see below.
+
+**Current version: v0.7 — measure + doctor (now with an end-of-run update check), a**
+**cited-interpretation report published as one redeployed artifact (or a local fallback file),**
+**steer + realign, a second, independent living artifact — the memory ledger, three modules**
+**wide, with simple/verbose views — exposing every memory entry and decision verbatim, and**
+**install/update as a prompt you hand Claude Code, with the manual commands kept alongside.**
 
 ## Requirements
 
@@ -49,10 +57,28 @@ module render "None recorded." until they adopt the same convention.
 
 ## Install as a Claude Code plugin (recommended)
 
+**Since v0.7, the easiest way to install is to just ask.** Tell Claude Code, in a sentence:
+
+> Install the Sarathi plugin from github.com/Priyadarshiswain/sarathi
+
+Claude Code runs, on your behalf:
+
+```bash
+claude plugin marketplace add Priyadarshiswain/sarathi
+claude plugin install sarathi@sarathi
+```
+
+**The manual alternative** — if you'd rather type the commands yourself, the existing
+slash-command form still works exactly as before, kept alongside the prompt-driven path, not
+demoted or removed:
+
 ```
 /plugin marketplace add Priyadarshiswain/sarathi
 /plugin install sarathi
 ```
+
+Both paths reach the same end state: the marketplace registered, the plugin installed, all
+three skills available.
 
 This installs three skills, `/sarathi:doctor`, `/sarathi:report`, and `/sarathi:memory`.
 `/sarathi:doctor` self-heals a missing or stale config on first use — it walks you through
@@ -65,11 +91,12 @@ any order. `/sarathi:memory` opens its page in **simple** view by default; run
 `/sarathi:memory --verbose` to open it in **verbose** view instead — either way, the on-page
 toggle and each row's own click-to-expand switch density afterward without needing another run.
 
-`/plugin marketplace add` and `/plugin install` are Claude Code's own operations and do
-reach the network (GitHub) to fetch the marketplace and plugin contents — that access
-belongs to Claude Code's plugin infrastructure, not to Sarathi. Once installed, `sarathi.py`
-itself still makes zero network calls, exactly as described below: "no network, ever" is a
-claim about the tool, not about the one-time install step.
+Both the prompt-driven `claude plugin ...` commands and the manual `/plugin ...` slash commands
+are Claude Code's own operations, and both reach the network (GitHub) to fetch the marketplace
+and plugin contents — that access belongs to Claude Code's plugin infrastructure, not to
+Sarathi, regardless of which of the two equivalent forms you (or Claude, on your behalf) use.
+Once installed, `sarathi.py` itself still makes zero network calls, exactly as described below:
+"no network, ever" is a claim about the tool, not about the one-time install step.
 
 **A second, equally explicit exception, since v0.4:** when you run `/sarathi:report` and
 the Artifact tool is available and used, the rendered report — project names, git/file/
@@ -101,6 +128,40 @@ Artifact tool is available and used, artifacts start private, orphan source name
 the trimmed, username-redacted slug (identical mitigation to the report's) — but the content
 itself carries more of you than anything Sarathi has published before, and the skill says so
 in-session every time this path runs, not as a one-time notice.
+
+**A fourth exception, since v0.7, and the lightest one Sarathi has shipped.** At the end of a
+successful `/sarathi:doctor` run, the skill makes one anonymous, read-only `git ls-remote
+--tags` request against `github.com/Priyadarshiswain/sarathi` to check whether a newer release
+exists — nothing about you, your projects, or your memory files leaves the machine this way.
+Unlike the report's and the ledger's own exceptions above, this one sends no user content at
+all: the request is exactly what any anonymous visitor to that public GitHub repo could already
+see, and `check_update.py`, the script that actually parses the result, never even receives a
+URL — only the already-fetched text and a local `plugin.json` path — so there is no code path
+by which this exception could carry your content, structurally, not merely by policy. It only
+runs when doctor's own result is a confirmed success; a `stop`ped or declined run never makes
+this request. `sarathi.py` itself still makes zero network calls, always — this, like every
+exception above, lives entirely inside a skill's own step, not inside the deterministic script.
+If you choose to update, `claude plugin update sarathi@sarathi` is a second, separate,
+explicitly consent-gated action that reaches GitHub again via Claude Code's own plugin
+infrastructure — the same category of access already disclosed for install above, not a new
+kind of exception. The skill states what's happening every single run this step is reached,
+never a one-time notice.
+
+## Updating
+
+Since v0.7, there are three equivalent ways to update, in the order you're most likely to
+reach for them:
+
+1. **Ask Claude Code** — the same prompt-driven shape as install: "check if there's a newer
+   Sarathi release" or "update Sarathi." Claude reaches for the same `claude plugin update
+   sarathi@sarathi` command below.
+2. **Run `/sarathi:doctor`** — since v0.7, it checks for a newer release at the end of its own
+   happy path and offers to update, consent-gated (see the fourth network exception above). It
+   never updates without asking first.
+3. **Run the manual command yourself:**
+   ```bash
+   claude plugin update sarathi@sarathi
+   ```
 
 ## Quick start (bare clone, no plugin)
 

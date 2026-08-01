@@ -607,7 +607,7 @@ class TestPluginManifests(unittest.TestCase):
         with open(path, encoding="utf-8") as fh:
             data = json.load(fh)
         self.assertEqual(data["name"], "sarathi")
-        self.assertEqual(data["version"], "0.6.0")
+        self.assertEqual(data["version"], "0.7.0")
 
     def test_marketplace_json_valid(self):
         plugin_path = os.path.join(REPO_ROOT, ".claude-plugin", "plugin.json")
@@ -1614,6 +1614,26 @@ REPORT_SKILL_MD_SHA256 = "589a809cd742921470c9aba23145a51879ebfce522e78465882d39
 REPORT_TEMPLATE_HTML_SHA256 = "ec461323557bbcd23764a3ef1ef9e49a13591dd583ac3a771853064ceddbd62c"
 CONFIG_SCHEMA_MD_SHA256 = "7ebd1db1cec3460ca8e14248f52461181134a463493b93be8f5da50ef294edd0"
 
+# SAR-07 (story §10): sarathi.py, skills/report/*, skills/memory/*,
+# docs/config-schema.md, and .claude-plugin/marketplace.json all have zero
+# diff in this story -- the memory-skill and marketplace fingerprints below
+# are new (no prior story hashed them); the rest reuse the constants above.
+# Same content-hash technique, same reason (no git command available to
+# this story's coder either).
+MEMORY_SKILL_MD_SHA256 = "7ca764aa3ebdf32ce706f75a4c741be5fec774d6efc52cdd45e3461a58baadd0"
+BUILD_LEDGER_PAYLOAD_PY_SHA256 = "adbf9c7807dd9fde8e03dc79819ca2d7b724e57f574e9b8472430057ebacc2f7"
+LEDGER_TEMPLATE_HTML_SHA256 = "56dc8fdd5b590b2244a9413dd36b03e80ce0af269332481170fcc0451ec5c9dd"
+MARKETPLACE_JSON_SHA256 = "f6837d22fdf0e9e4a520420e9ef0935b984e40a05d92d49fa789d4be6dd824b8"
+
+DOCTOR_SKILL_DIR = os.path.join(REPO_ROOT, "skills", "doctor")
+if DOCTOR_SKILL_DIR not in sys.path:
+    sys.path.insert(0, DOCTOR_SKILL_DIR)
+import check_update  # noqa: E402
+
+CHECK_UPDATE_PATH = os.path.join(DOCTOR_SKILL_DIR, "check_update.py")
+DOCTOR_SKILL_MD_PATH = os.path.join(DOCTOR_SKILL_DIR, "SKILL.md")
+PLUGIN_JSON_PATH = os.path.join(REPO_ROOT, ".claude-plugin", "plugin.json")
+
 
 def _read_ledger_template():
     with open(LEDGER_TEMPLATE_PATH, encoding="utf-8") as fh:
@@ -2485,13 +2505,264 @@ class TestMemorySkillEnvironmentNeutral(unittest.TestCase):
 class TestLedgerPluginJsonVersionBump(unittest.TestCase):
     """Criterion 32 (SAR-06, supersedes SAR-05 criterion 36), parallel to
     TestPluginManifests.test_plugin_json_valid above (already updated to
-    0.6.0 for this story)."""
+    0.7.0 by SAR-07, criterion 30 -- this is the second of the two
+    plugin.json version-literal tests SAR-07 §12 names; it lives here in
+    the memory-ledger block but asserts the same shared file, moving in
+    lockstep with every plugin.json bump regardless of which story causes
+    it)."""
 
     def test_plugin_json_version_bump(self):
         path = os.path.join(REPO_ROOT, ".claude-plugin", "plugin.json")
         with open(path, encoding="utf-8") as fh:
             data = json.load(fh)
-        self.assertEqual(data["version"], "0.6.0")
+        self.assertEqual(data["version"], "0.7.0")
+
+
+# ----------------------------------------------------------------------------
+# SAR-07 additions below: skills/doctor/check_update.py's pure functions and
+# CLI contract, the doctor SKILL.md's new §5 step (frontmatter-only, since
+# the live flow itself is reviewer-verified per §12), the sarathi.py /
+# doctor --json zero-diff and unchanged-schema checks, and the version bump.
+# Everything above this line is SAR-01-06's suite, re-run unmodified as
+# regression coverage.
+# ----------------------------------------------------------------------------
+class TestCheckUpdateTagParsing(unittest.TestCase):
+    """Criteria 1-2: parse_tags() dedupes peeled annotated-tag lines and
+    excludes anything not matching the strict release-tag shape."""
+
+    def test_parse_tags_dedupes_peeled_annotated_tag(self):
+        text = (
+            "aaa111\trefs/tags/v0.7.0\n"
+            "bbb222\trefs/tags/v0.7.0^{}\n"
+        )
+        tags = check_update.parse_tags(text)
+        self.assertEqual(tags, ["0.7.0"])
+
+    def test_parse_tags_excludes_prerelease_and_malformed_and_unrelated_refs(self):
+        text = (
+            "aaa\trefs/tags/v0.7.0\n"           # bare vMAJOR.MINOR.PATCH
+            "bbb\trefs/tags/0.6.0\n"             # no leading v
+            "ccc\trefs/tags/v0.8.0-rc1\n"        # prerelease -- excluded
+            "ddd\trefs/tags/v0.8\n"              # malformed -- excluded
+            "eee\trefs/heads/main\n"             # unrelated ref -- excluded
+        )
+        tags = check_update.parse_tags(text)
+        self.assertEqual(tags, ["0.6.0", "0.7.0"])
+
+
+class TestCheckUpdateLatestSelection(unittest.TestCase):
+    """Criteria 3, 7: latest_semver_tag() picks the numerically highest
+    candidate, never a lexicographic one, and returns None for an empty
+    candidate list."""
+
+    def test_latest_semver_tag_is_highest_not_lexicographic(self):
+        # Lexicographic comparison would wrongly pick "0.7.0" over
+        # "0.10.0" (the character '1' < '7'). Numeric tuple comparison
+        # must not make that mistake.
+        self.assertEqual(
+            check_update.latest_semver_tag(["0.6.0", "0.10.0", "0.7.0"]),
+            "0.10.0",
+        )
+
+    def test_latest_semver_tag_none_when_no_valid_tags_present(self):
+        self.assertIsNone(check_update.latest_semver_tag([]))
+
+
+class TestCheckUpdateResult(unittest.TestCase):
+    """Criteria 4-6, 10: build_result()'s update_available boolean and its
+    determinism given the same two inputs."""
+
+    def _text(self, *tags):
+        return "".join("sha{0}\trefs/tags/v{1}\n".format(i, t) for i, t in enumerate(tags))
+
+    def test_update_available_true_when_latest_gt_installed(self):
+        result = check_update.build_result("0.6.0", self._text("0.7.0"))
+        self.assertEqual(
+            result, {"installed": "0.6.0", "latest": "0.7.0", "update_available": True},
+        )
+
+    def test_update_available_false_when_equal(self):
+        result = check_update.build_result("0.7.0", self._text("0.7.0"))
+        self.assertEqual(
+            result, {"installed": "0.7.0", "latest": "0.7.0", "update_available": False},
+        )
+
+    def test_update_available_false_when_installed_ahead_of_latest(self):
+        # A dev checkout ahead of any tag: update_available stays False, and
+        # latest still reports the highest real tag found -- not null, not
+        # installed's own value (SAR-07 §6, criterion 6).
+        result = check_update.build_result("0.9.0", self._text("0.6.0", "0.7.0"))
+        self.assertEqual(result["update_available"], False)
+        self.assertEqual(result["latest"], "0.7.0")
+
+    def test_result_deterministic_same_inputs_same_output(self):
+        text = self._text("0.6.0", "0.7.0")
+        first = check_update.build_result("0.6.0", text)
+        second = check_update.build_result("0.6.0", text)
+        self.assertEqual(first, second)
+        self.assertEqual(json.dumps(first, sort_keys=True), json.dumps(second, sort_keys=True))
+
+
+class TestCheckUpdateCLI(unittest.TestCase):
+    """Subprocess-level CLI contract, mirroring TestBuildLedgerPayloadCLI's
+    own pattern: stdin carries the git ls-remote fixture text, --plugin-json
+    points at a temp plugin.json (criteria 8-9)."""
+
+    def _write_plugin_json(self, tmp, version):
+        path = os.path.join(tmp, "plugin.json")
+        with open(path, "w", encoding="utf-8") as fh:
+            json.dump({"version": version}, fh)
+        return path
+
+    def test_cli_writes_expected_json_given_fixture_stdin_and_plugin_json(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            plugin_json = self._write_plugin_json(tmp, "0.6.0")
+            ls_remote_text = "aaa\trefs/tags/v0.7.0\nbbb\trefs/tags/v0.7.0^{}\n"
+            r = subprocess.run(
+                [sys.executable, CHECK_UPDATE_PATH, "--plugin-json", plugin_json],
+                input=ls_remote_text, capture_output=True, text=True,
+            )
+            self.assertEqual(r.returncode, 0, r.stderr)
+            payload = json.loads(r.stdout)
+            direct = check_update.build_result("0.6.0", ls_remote_text)
+            self.assertEqual(payload, direct)
+            self.assertEqual(len(r.stdout.splitlines()), 1)
+
+    def test_cli_empty_stdin_exits_nonzero_no_stdout_json(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            plugin_json = self._write_plugin_json(tmp, "0.6.0")
+            r = subprocess.run(
+                [sys.executable, CHECK_UPDATE_PATH, "--plugin-json", plugin_json],
+                input="", capture_output=True, text=True,
+            )
+            self.assertNotEqual(r.returncode, 0)
+            self.assertEqual(r.stdout, "")
+            self.assertTrue(r.stderr.strip())
+
+    def test_cli_malformed_installed_version_exits_nonzero(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            plugin_json = self._write_plugin_json(tmp, "not-a-version")
+            r = subprocess.run(
+                [sys.executable, CHECK_UPDATE_PATH, "--plugin-json", plugin_json],
+                input="aaa\trefs/tags/v0.7.0\n", capture_output=True, text=True,
+            )
+            self.assertNotEqual(r.returncode, 0)
+            self.assertEqual(r.stdout, "")
+            self.assertIn("not-a-version", r.stderr)
+
+
+class TestCheckUpdateNoNetworkImports(unittest.TestCase):
+    """Criterion 11 -- mirrors TestNoNetworkImports exactly, pointed at
+    skills/doctor/check_update.py."""
+
+    def test_no_network_imports(self):
+        with open(CHECK_UPDATE_PATH, encoding="utf-8") as fh:
+            source = fh.read()
+        forbidden = ["urllib", "http.client", "httplib", "socket", "requests",
+                     "ftplib", "smtplib", "xmlrpc"]
+        import_lines = [
+            ln for ln in source.splitlines()
+            if re.match(r"^\s*(import|from)\s+", ln)
+        ]
+        for ln in import_lines:
+            for name in forbidden:
+                self.assertNotIn(
+                    name, ln,
+                    f"network-capable import found: {ln!r} (contains {name!r})",
+                )
+
+
+class TestZeroDiffFilesUnchangedForSAR07(unittest.TestCase):
+    """Criteria 12, 33 (SAR-07 §10/§12): sarathi.py, skills/report/*,
+    skills/memory/*, docs/config-schema.md, and
+    .claude-plugin/marketplace.json all have zero diff in this story.
+    Content-hash comparison (not `git diff`), since this story's coder is
+    barred from running any git command (§10). This satisfies criterion 12
+    directly (a fresh assertion, rather than relying only on
+    test_render_report_skill_files_and_config_schema_doc_unchanged, which
+    predates this story and does not cover the memory skill or
+    marketplace.json)."""
+
+    def test_sar07_zero_diff_files_unchanged(self):
+        checks = (
+            (SARATHI_PATH, SARATHI_PY_SHA256),
+            (os.path.join(REPO_ROOT, "skills", "report", "SKILL.md"), REPORT_SKILL_MD_SHA256),
+            (RENDER_REPORT_PATH, RENDER_REPORT_PY_SHA256),
+            (os.path.join(REPO_ROOT, "skills", "report", "report-template.html"),
+             REPORT_TEMPLATE_HTML_SHA256),
+            (os.path.join(REPO_ROOT, "skills", "memory", "SKILL.md"), MEMORY_SKILL_MD_SHA256),
+            (os.path.join(MEMORY_SKILL_DIR, "build_ledger_payload.py"),
+             BUILD_LEDGER_PAYLOAD_PY_SHA256),
+            (LEDGER_TEMPLATE_PATH, LEDGER_TEMPLATE_HTML_SHA256),
+            (os.path.join(REPO_ROOT, "docs", "config-schema.md"), CONFIG_SCHEMA_MD_SHA256),
+            (os.path.join(REPO_ROOT, ".claude-plugin", "marketplace.json"),
+             MARKETPLACE_JSON_SHA256),
+        )
+        for path, expected in checks:
+            with open(path, encoding="utf-8") as fh:
+                source = fh.read()
+            digest = hashlib.sha256(source.encode("utf-8")).hexdigest()
+            self.assertEqual(digest, expected, path)
+
+
+class TestDoctorJsonSchemaUnaffected(TempDirCase):
+    """Criterion 13: sarathi.py doctor --json's output shape (the `checks`
+    array and the top-level `branch` field) is identical after this story
+    -- no "update" entry added to the checks list, no new top-level key.
+    Structural, not just content-hash: even a compatible-looking addition
+    inside an unchanged-hash file would already be caught by
+    TestZeroDiffFilesUnchangedForSAR07 above, but this test asserts the
+    shape directly, the way the story names it (criterion 13)."""
+
+    def test_doctor_json_checks_and_branch_shape_unchanged(self):
+        self.build_project(name="p")
+        out_path = os.path.join(self.tmp, "facts.json")
+        write_config(self.config_dir, [self.projects_root], out_path)
+        r = run_sarathi(["doctor", "--json"], config_dir=self.config_dir)
+        payload = json.loads(r.stdout)
+        self.assertEqual(set(payload.keys()), {"checks", "branch"})
+        for check in payload["checks"]:
+            self.assertEqual(set(check.keys()), {"name", "status", "detail"})
+            self.assertNotEqual(check["name"], "update")
+
+
+class TestDoctorSkillFrontmatter(unittest.TestCase):
+    """Criterion 32: doctor's SKILL.md frontmatter still lists
+    allowed-tools exactly `Bash, Read, Write, AskUserQuestion` -- every new
+    action this story adds (running git, running check_update.py, running
+    `claude plugin update`, asking the consent question) is already
+    covered by those four, so the list itself does not change. Also
+    verifies Fable's ruling 9 (status header): the `description` field
+    must gain a short update-trigger clause so a user saying "update
+    sarathi" lands in this skill."""
+
+    def setUp(self):
+        with open(DOCTOR_SKILL_MD_PATH, encoding="utf-8") as fh:
+            self.text = fh.read()
+
+    def test_allowed_tools_unchanged(self):
+        m = re.search(r"^allowed-tools:\s*(.+)$", self.text, re.MULTILINE)
+        self.assertIsNotNone(m)
+        tools = [t.strip() for t in m.group(1).split(",")]
+        self.assertEqual(tools, ["Bash", "Read", "Write", "AskUserQuestion"])
+
+    def test_description_mentions_update_trigger(self):
+        m = re.search(r"^description:\s*(.+)$", self.text, re.MULTILINE)
+        self.assertIsNotNone(m)
+        description = m.group(1).lower()
+        self.assertIn("update", description)
+
+
+class TestDoctorSkillEnvironmentNeutral(unittest.TestCase):
+    """Criterion 31: no machine-specific path in either shipped doctor
+    file, mirroring TestMemorySkillEnvironmentNeutral's pattern."""
+
+    def test_no_machine_specific_path_in_shipped_doctor_files(self):
+        for path in (DOCTOR_SKILL_MD_PATH, CHECK_UPDATE_PATH):
+            with open(path, encoding="utf-8") as fh:
+                text = fh.read()
+            self.assertNotIn("/Users/", text, path)
+            self.assertNotIn("/home/", text, path)
 
 
 if __name__ == "__main__":

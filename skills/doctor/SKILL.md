@@ -1,6 +1,6 @@
 ---
 name: doctor
-description: Check or set up the Sarathi environment — Python, git, config validity, project roots, output path. Reports exactly what is broken with its exact fix, and offers guided first-time setup when no config exists or an existing one is stale. Use when the user asks to diagnose, fix, set up, or migrate Sarathi.
+description: Check or set up the Sarathi environment — Python, git, config validity, project roots, output path. Reports exactly what is broken with its exact fix, and offers guided first-time setup when no config exists or an existing one is stale. Use when the user asks to diagnose, fix, set up, or migrate Sarathi, or asks to update Sarathi or check for a newer version.
 allowed-tools: Bash, Read, Write, AskUserQuestion
 ---
 
@@ -57,7 +57,8 @@ check as a mere warning — "couldn't look" is never "nothing found."
 
 ### `branch: "proceed"`
 
-All green. Say so, and suggest `/sarathi:report` as the next step.
+All green. Say so. Then check for a newer release (§5 below) before
+suggesting `/sarathi:report`.
 
 ### `branch: "stop"`
 
@@ -228,7 +229,83 @@ Immediately re-run:
 <invoker> "${CLAUDE_PLUGIN_ROOT}/sarathi.py" doctor --json
 ```
 
-Confirm `branch` is now `"proceed"`. Report the fresh results and suggest
-`/sarathi:report` as the next step. Do not chain directly into `report`
-itself — that stays a separate skill invocation. Never declare setup done
-on your own say-so; only the script's own re-run confirms it.
+Confirm `branch` is now `"proceed"`. Report the fresh results. Then check
+for a newer release (§5 below) before suggesting `/sarathi:report` as the
+next step. Do not chain directly into `report` itself — that stays a
+separate skill invocation. Never declare setup done on your own say-so;
+only the script's own re-run confirms it.
+
+## 5. Check for a newer release (only once `branch` is a confirmed `"proceed"`)
+
+This step runs exactly once per doctor invocation that ends in success,
+synchronous with the rest of that run — no polling, no background check,
+no persisted "last checked" state. It is reached only from §2's direct
+`"proceed"` report or §4h's post-init re-confirm above — **never** from
+`branch: "stop"` (§2's verbatim-failure report and nothing else still
+applies), and never if the user declines guided setup at §3 or any of
+init's own proofs fail (config.json never written, so `"proceed"` was
+never genuinely reached).
+
+1. **State plainly, before running anything — every run this step is
+   reached, never a one-time notice:** "Checking for a newer Sarathi
+   release (reaches GitHub, read-only — see the README's fourth network
+   exception)."
+2. **Run, with a 10-second timeout:**
+   ```bash
+   git ls-remote --tags https://github.com/Priyadarshiswain/sarathi.git
+   ```
+   - **Non-zero exit, timeout, or empty output** (offline, GitHub
+     unreachable, DNS failure, or any other network condition): report
+     exactly one line — e.g. "Couldn't check for updates (network
+     unavailable) — everything else above is unaffected." — and **stop
+     this step entirely**. `check_update.py` is never invoked in this
+     branch. Doctor's result, already fully reported above, is
+     unaffected; this is a loud, one-line, non-fatal report (rule 2),
+     never a reason to reclassify anything as failed.
+3. **On success (non-empty output), run:**
+   ```bash
+   <invoker> "${CLAUDE_PLUGIN_ROOT}/skills/doctor/check_update.py" \
+     --plugin-json "${CLAUDE_PLUGIN_ROOT}/.claude-plugin/plugin.json"
+   ```
+   piping step 2's output in as stdin. Parse the one line of JSON it
+   prints.
+   - **`check_update.py` itself exits non-zero** (should be rare given
+     step 2's guard, but not impossible — e.g. a corrupted local
+     `plugin.json`, which would itself already have surfaced as a doctor
+     problem elsewhere): report one line naming the script's own stderr
+     text and stop — same loud-not-fatal treatment as step 2's failure.
+   - **`update_available: false`:** one quiet line — "Sarathi is up to
+     date (`<installed>` is the latest release)." If `latest` is `null`
+     (no tags found at all), say so plainly instead ("no tagged releases
+     found on GitHub yet") rather than implying a comparison that didn't
+     actually happen.
+   - **`update_available: true`:** state plainly — "A newer Sarathi
+     release is available: installed `<installed>`, latest `<latest>`."
+     — then ask exactly one `AskUserQuestion`: "Update Sarathi to
+     `<latest>` now?" with exactly two options, `Update now` / `Not now`.
+4. **On "Update now":**
+   ```bash
+   claude plugin update sarathi@sarathi
+   ```
+   - **Success (exit 0):** report success plainly, note the new version,
+     and suggest running `/sarathi:doctor` again in a **fresh session** to
+     confirm it. This session's remaining output (and anything else
+     invoked afterward this session) is still running the pre-update
+     code — this does not claim or verify that the update takes effect
+     mid-session.
+   - **Failure (non-zero exit) or the command is unavailable** (e.g.
+     `claude` not found on the `Bash` tool's `PATH`): print exactly the
+     command for the user to run themselves — `` Run this yourself:
+     `claude plugin update sarathi@sarathi` `` — and **stop there**. Never
+     retry, never try an alternate invocation, never fall back to
+     `/plugin update` or any other guessed syntax.
+5. **On "Not now":** one quiet line acknowledging the choice and naming
+   the manual command for later — "Not updating now. Run `claude plugin
+   update sarathi@sarathi` anytime, or say yes next time `/sarathi:doctor`
+   offers it."
+
+**Never changes `branch`, never blocks the existing next-step suggestion,
+never re-runs diagnosis.** By construction: this step is reached only
+*after* §2/§4 have already fully reported doctor's own verdict — everything
+here is strictly additive text and Bash calls appended to a run that has
+already finished being "doctor."
