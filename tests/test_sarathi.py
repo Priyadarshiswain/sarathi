@@ -12,6 +12,7 @@ for immediate child directories -- each child is one measured project.
 Run: python3 -m unittest discover -s tests -v
 """
 import hashlib
+import inspect
 import json
 import os
 import re
@@ -606,7 +607,7 @@ class TestPluginManifests(unittest.TestCase):
         with open(path, encoding="utf-8") as fh:
             data = json.load(fh)
         self.assertEqual(data["name"], "sarathi")
-        self.assertEqual(data["version"], "0.4.0")
+        self.assertEqual(data["version"], "0.5.0")
 
     def test_marketplace_json_valid(self):
         plugin_path = os.path.join(REPO_ROOT, ".claude-plugin", "plugin.json")
@@ -1562,6 +1563,657 @@ class TestRenderReportCLI(unittest.TestCase):
             )
             self.assertNotEqual(r.returncode, 0)
             self.assertIn("marker", r.stderr.lower())
+
+
+# ----------------------------------------------------------------------------
+# SAR-05 additions below: the memory ledger's payload builder
+# (skills/memory/build_ledger_payload.py) and its shipped template's static
+# structural properties (§12 of SAR-05). Everything above this line is
+# SAR-01-04's original suite, re-run unmodified as regression coverage, with
+# one necessary exception: the version literal in
+# TestPluginManifests.test_plugin_json_valid, updated above to "0.5.0" for
+# this story's mandated 0.4.0 -> 0.5.0 plugin.json bump -- the same kind of
+# one-line bump SAR-02/03/04 each already introduced for their own version
+# transitions. sarathi.py and skills/report/render_report.py both have zero
+# diff in this story (SAR-05 §3/§7), so nothing else above this line changed.
+# ----------------------------------------------------------------------------
+MEMORY_SKILL_DIR = os.path.join(REPO_ROOT, "skills", "memory")
+if MEMORY_SKILL_DIR not in sys.path:
+    sys.path.insert(0, MEMORY_SKILL_DIR)
+import build_ledger_payload  # noqa: E402
+
+LEDGER_TEMPLATE_PATH = os.path.join(REPO_ROOT, "skills", "memory", "ledger-template.html")
+
+# render_report.py's exact content fingerprint, computed once from the
+# SAR-04-shipped file on disk before this story touched anything else in the
+# repo (this story never opens that file for writing -- criterion 21). A
+# content hash is used instead of `git diff` because the coder for this
+# story is barred from running any git command at all; any future edit to
+# render_report.py -- accidental or not -- breaks this test immediately.
+RENDER_REPORT_PY_SHA256 = "77350c1e50183868312bc108c051034e6fa94e42fac95f2851ad7b0ebbab4bc5"
+
+
+def _read_ledger_template():
+    with open(LEDGER_TEMPLATE_PATH, encoding="utf-8") as fh:
+        return fh.read()
+
+
+# The §6-pinned ledger payload example, copied verbatim as a fixture -- never
+# live data (mirrors PINNED_PAYLOAD_EXAMPLE's role for the report above).
+PINNED_LEDGER_PAYLOAD_EXAMPLE = {
+    "meta": {
+        "as_of": "2026-08-01",
+        "generated_at": "2026-08-01T14:32:07Z",
+        "version_label": "2026-08-01 · 14:32 UTC",
+    },
+    "stats": {
+        "total_entries": 14,
+        "by_group": {"user": 1, "feedback": 3, "project": 6, "reference": 2, "untyped": 2},
+        "sources_with_memory": 5,
+        "steering_decisions": 3,
+    },
+    "groups": [
+        {"type": "user", "label": "about you", "entries": []},
+        {
+            "type": "feedback",
+            "label": "working style",
+            "entries": [
+                {
+                    "name": "git-publish-hands-off",
+                    "desc": "For git/publish/release steps, give the user runnable commands "
+                            "instead of executing them",
+                    "date": "2026-07-28",
+                    "type": "feedback",
+                    "source": "tokenomics",
+                    "source_kind": "project",
+                    "threads": [],
+                }
+            ],
+        },
+        {
+            "type": "project",
+            "label": "project state",
+            "entries": [
+                {
+                    "name": "tokenomics-release-refs",
+                    "desc": "Install strings, update commands, test plan, and what's still open",
+                    "date": "2026-07-29",
+                    "type": "project",
+                    "source": "tokenomics",
+                    "source_kind": "project",
+                    "threads": ["not shipped: public-repo flip still pending"],
+                }
+            ],
+        },
+        {"type": "reference", "label": "reference", "entries": []},
+        {
+            "type": "untyped",
+            "label": "untyped",
+            "entries": [
+                {
+                    "name": "old-thing-notes",
+                    "desc": "Half-finished spike notes, no frontmatter type ever set",
+                    "date": "2026-06-02",
+                    "type": "untyped",
+                    "source": "old-thing",
+                    "source_kind": "orphan",
+                    "threads": [],
+                }
+            ],
+        },
+    ],
+    "decisions": [
+        {
+            "source": "EmailOrganiser",
+            "source_kind": "orphan",
+            "verdict": "dead",
+            "decided": "2026-08-01",
+            "reason": "declared dead — no longer relevant",
+            "source_file": "sarathi-decision-2026-08-01.md",
+            "expired": False,
+        }
+    ],
+    "caveats": [
+        {"source": "AiTools", "source_kind": "project", "kind": "memory",
+         "status": "failed", "reason": "2 files unparseable: bad-frontmatter.md, empty.md"}
+    ],
+}
+
+
+# -- fixture helpers: build fact-sheet-shaped dicts directly, precise control
+# over every edge case without needing a real project tree on disk. Every
+# shape mirrors exactly what sarathi.py's own measure_project()/
+# collect_orphans() produce (cross-checked against TestDecisionParsing/
+# TestOrphans above), so these fixtures are never a shape sarathi.py itself
+# couldn't actually write. ----------------------------------------------------
+def _memory_entry(name="note", desc="a note", date_val="2026-07-01", type_val="project",
+                   threads=None):
+    return {"name": name, "desc": desc, "date": date_val, "type": type_val,
+            "threads": threads or []}
+
+
+def _decision(verdict="parked", decided="2026-08-01", reason="", source_file=None,
+              expired=False):
+    return {
+        "verdict": verdict, "decided": decided, "reason": reason,
+        "source": source_file or "sarathi-decision-{0}.md".format(decided), "expired": expired,
+    }
+
+
+def _project_entry(status="ok", memory_entries=None, memory_status="ok", memory_reason=None,
+                    decisions_entries=None, decisions_status=None, decisions_reason=None):
+    memory_entries = memory_entries or []
+    decisions_entries = decisions_entries or []
+    if decisions_status is None:
+        decisions_status = "ok" if decisions_entries else "empty"
+    return {
+        "status": status,
+        "memory": {"status": memory_status, "reason": memory_reason, "entries": memory_entries},
+        "decisions": {"status": decisions_status, "reason": decisions_reason,
+                      "entries": decisions_entries},
+    }
+
+
+def _orphan_entry(slug_val, memory_entries=None, memory_status="ok", memory_reason=None,
+                   decisions_entries=None, decisions_status=None, decisions_reason=None):
+    memory_entries = memory_entries or []
+    decisions_entries = decisions_entries or []
+    if decisions_status is None:
+        decisions_status = "ok" if decisions_entries else "empty"
+    return {
+        "slug": slug_val,
+        "status": memory_status,
+        "reason": memory_reason,
+        "memory": memory_entries,
+        "decisions": {"status": decisions_status, "reason": decisions_reason,
+                      "entries": decisions_entries},
+        "ruled": False,
+    }
+
+
+def _fact_sheet(as_of="2026-08-01", generated_at="2026-08-01T14:32:07Z",
+                 roots=None, projects=None, orphans=None):
+    orphans = orphans or []
+    return {
+        "schema_version": 2,
+        "run": {"generated_at": generated_at},
+        "facts": {
+            "as_of": as_of,
+            "roots": roots or {},
+            "projects": projects or {},
+            "orphans": {"status": "ok" if orphans else "empty", "entries": orphans},
+            "steer_candidates": [],  # never read by build_ledger_payload (criterion 9)
+        },
+    }
+
+
+class TestLedgerBucketing(unittest.TestCase):
+    """Criteria 1-2: bucket_for_type()/build_payload() grouping."""
+
+    def test_group_bucketing_known_types(self):
+        projects = {
+            "proj-a": _project_entry(memory_entries=[
+                _memory_entry(name="u1", type_val="user"),
+                _memory_entry(name="f1", type_val="feedback"),
+                _memory_entry(name="p1", type_val="project"),
+                _memory_entry(name="r1", type_val="reference"),
+            ]),
+        }
+        payload = build_ledger_payload.build_payload(_fact_sheet(projects=projects))
+        by_type = {g["type"]: [e["name"] for e in g["entries"]] for g in payload["groups"]}
+        self.assertEqual(by_type["user"], ["u1"])
+        self.assertEqual(by_type["feedback"], ["f1"])
+        self.assertEqual(by_type["project"], ["p1"])
+        self.assertEqual(by_type["reference"], ["r1"])
+        self.assertEqual(by_type["untyped"], [])
+
+    def test_group_bucketing_falls_through_to_untyped(self):
+        projects = {
+            "proj-a": _project_entry(memory_entries=[
+                _memory_entry(name="def", type_val="untyped"),
+                _memory_entry(name="scratch-note", type_val="scratch"),
+            ]),
+        }
+        payload = build_ledger_payload.build_payload(_fact_sheet(projects=projects))
+        untyped_group = next(g for g in payload["groups"] if g["type"] == "untyped")
+        names = [e["name"] for e in untyped_group["entries"]]
+        self.assertEqual(names, ["def", "scratch-note"])
+        raw_types = {e["name"]: e["type"] for e in untyped_group["entries"]}
+        # criterion 2: the raw type field is never rewritten to match the bucket.
+        self.assertEqual(raw_types["scratch-note"], "scratch")
+        self.assertEqual(raw_types["def"], "untyped")
+
+
+class TestLedgerGroupsAlwaysPresent(unittest.TestCase):
+    """Criterion 3."""
+
+    def test_all_five_groups_always_present_in_fixed_order(self):
+        payload = build_ledger_payload.build_payload(_fact_sheet())
+        types = [g["type"] for g in payload["groups"]]
+        self.assertEqual(types, ["user", "feedback", "project", "reference", "untyped"])
+        labels = {g["type"]: g["label"] for g in payload["groups"]}
+        self.assertEqual(labels, {
+            "user": "about you", "feedback": "working style", "project": "project state",
+            "reference": "reference", "untyped": "untyped",
+        })
+        for g in payload["groups"]:
+            self.assertEqual(g["entries"], [])
+
+
+class TestLedgerEntryFidelity(unittest.TestCase):
+    """Criterion 4."""
+
+    def test_entry_fields_copied_verbatim(self):
+        entry = _memory_entry(
+            name="git-publish-hands-off",
+            desc='For git/publish steps <weird> chars & "quotes"',
+            date_val="2026-07-28", type_val="feedback",
+            threads=["not shipped: x"],
+        )
+        projects = {"tokenomics": _project_entry(memory_entries=[entry])}
+        payload = build_ledger_payload.build_payload(_fact_sheet(projects=projects))
+        out = next(g for g in payload["groups"] if g["type"] == "feedback")["entries"][0]
+        self.assertEqual(out["name"], entry["name"])
+        self.assertEqual(out["desc"], entry["desc"])
+        self.assertEqual(out["date"], entry["date"])
+        self.assertEqual(out["type"], entry["type"])
+        self.assertEqual(out["threads"], entry["threads"])
+
+
+class TestLedgerVoiceHasNoEffect(unittest.TestCase):
+    """Criterion 5: build_payload() takes only a fact sheet -- config.json
+    (and therefore `voice`) is never read, so it structurally cannot affect
+    this payload."""
+
+    def test_voice_has_no_effect_on_ledger_payload(self):
+        sig = inspect.signature(build_ledger_payload.build_payload)
+        self.assertEqual(list(sig.parameters), ["fact_sheet"])
+        payload = build_ledger_payload.build_payload(_fact_sheet())
+        self.assertNotIn("voice", payload["meta"])
+
+        fs = _fact_sheet(projects={"p": _project_entry(memory_entries=[_memory_entry()])})
+        p1 = build_ledger_payload.build_payload(fs)
+        p2 = build_ledger_payload.build_payload(fs)
+        self.assertEqual(p1, p2)
+
+
+class TestLedgerSourceFields(unittest.TestCase):
+    """Criteria 6-7."""
+
+    def test_project_source_is_key_orphan_source_is_trimmed_slug(self):
+        root = "/Users/alice/Projects"
+        root_slug = build_ledger_payload.slug(os.path.normpath(root))
+        orphan_slug = "{0}-old-thing".format(root_slug)
+        projects = {"tokenomics": _project_entry(memory_entries=[_memory_entry(name="p1")])}
+        orphans = [_orphan_entry(orphan_slug, memory_entries=[_memory_entry(name="o1")])]
+        roots = {root: {"status": "ok", "reason": None, "projects": 1}}
+        payload = build_ledger_payload.build_payload(
+            _fact_sheet(projects=projects, orphans=orphans, roots=roots))
+        all_entries = [e for g in payload["groups"] for e in g["entries"]]
+        proj_entry = next(e for e in all_entries if e["name"] == "p1")
+        orphan_entry = next(e for e in all_entries if e["name"] == "o1")
+        self.assertEqual(proj_entry["source"], "tokenomics")
+        self.assertEqual(proj_entry["source_kind"], "project")
+        self.assertEqual(orphan_entry["source"], "old-thing")
+        self.assertEqual(orphan_entry["source_kind"], "orphan")
+        # raw slug (embeds the local OS username) never leaks into the payload
+        self.assertNotIn(orphan_slug, json.dumps(payload))
+
+
+class TestLedgerFailedProjectSkipped(TempDirCase):
+    """Criterion 8, real sarathi.py fixture (mirrors TestFailedEntryShape's
+    own technique above)."""
+
+    def test_failed_project_entry_skipped_without_error(self):
+        missing_child = os.path.join(self.projects_root, "vanished-child")
+        failed_entry = sarathi.measure_project(missing_child, self.config_dir, date.today())
+        self.assertEqual(failed_entry["status"], "failed")
+        self.assertNotIn("memory", failed_entry)
+        self.assertNotIn("decisions", failed_entry)
+
+        projects = {
+            "vanished-child": failed_entry,
+            "ok-proj": _project_entry(memory_entries=[_memory_entry(name="still-here")]),
+        }
+        payload = build_ledger_payload.build_payload(_fact_sheet(projects=projects))
+        all_names = [e["name"] for g in payload["groups"] for e in g["entries"]]
+        self.assertEqual(all_names, ["still-here"])  # no crash, no contribution
+
+
+class TestLedgerPayloadOnlyReadsDocumentedPaths(unittest.TestCase):
+    """Criterion 9."""
+
+    def test_payload_reads_only_documented_fact_sheet_paths(self):
+        base_projects = {"p": _project_entry(memory_entries=[_memory_entry(name="n1")])}
+        fs1 = _fact_sheet(projects=base_projects)
+        fs2 = _fact_sheet(projects=base_projects)
+        fs2["facts"]["steer_candidates"] = [
+            {"kind": "project", "key": "p", "slug": "x", "days_stalled": 999,
+             "unruled_flags": ["dormant"]}
+        ]
+        self.assertEqual(
+            build_ledger_payload.build_payload(fs1),
+            build_ledger_payload.build_payload(fs2),
+        )
+
+        # Removing the undocumented key entirely must not crash either.
+        fs3 = _fact_sheet(projects=base_projects)
+        del fs3["facts"]["steer_candidates"]
+        build_ledger_payload.build_payload(fs3)  # no error
+
+        # Undocumented per-project fields (flags/ruled_flags/git/files/
+        # sessions/slug -- all real sarathi.py output, never read here) must
+        # also be ignored.
+        richer_project = dict(base_projects["p"])
+        richer_project.update({
+            "flags": ["dormant"],
+            "ruled_flags": [{"flag": "dormant", "verdict": "parked", "decided": "2026-08-01",
+                              "source": "x.md"}],
+            "git": {"status": "ok", "last_commit": "2026-01-01", "dirty": 0},
+            "files": {"status": "ok", "count": 3, "newest": "2026-01-01"},
+            "sessions": {"status": "ok", "count": 1, "last_session": "2026-01-01"},
+            "slug": "whatever",
+        })
+        fs4 = _fact_sheet(projects={"p": richer_project})
+        self.assertEqual(
+            build_ledger_payload.build_payload(fs1),
+            build_ledger_payload.build_payload(fs4),
+        )
+
+
+class TestLedgerPayloadDeterminism(unittest.TestCase):
+    """Criterion 10."""
+
+    def test_payload_deterministic_same_input_same_output(self):
+        projects = {
+            "p": _project_entry(memory_entries=[
+                _memory_entry(name="n1"), _memory_entry(name="n2", type_val="feedback"),
+            ]),
+        }
+        fs = _fact_sheet(projects=projects)
+        p1 = build_ledger_payload.build_payload(fs)
+        p2 = build_ledger_payload.build_payload(fs)
+        self.assertEqual(p1, p2)
+        j1 = json.dumps(p1, sort_keys=True, ensure_ascii=False)
+        j2 = json.dumps(p2, sort_keys=True, ensure_ascii=False)
+        self.assertEqual(j1, j2)
+
+
+class TestLedgerOrdering(unittest.TestCase):
+    """Criteria 11-12."""
+
+    def test_group_and_decision_ordering(self):
+        projects = {
+            "zeta": _project_entry(
+                memory_entries=[_memory_entry(name="z1", type_val="project")],
+                decisions_entries=[_decision(verdict="parked", decided="2026-07-01",
+                                              source_file="d1.md")],
+            ),
+            "alpha": _project_entry(
+                memory_entries=[_memory_entry(name="a1", type_val="project")],
+                decisions_entries=[_decision(verdict="dead", decided="2026-07-15",
+                                              source_file="d2.md")],
+            ),
+        }
+        orphans = [
+            _orphan_entry("slug-b", memory_entries=[_memory_entry(name="b1", type_val="project")]),
+            _orphan_entry("slug-a", memory_entries=[_memory_entry(name="a-orphan",
+                                                                    type_val="project")]),
+        ]
+        payload = build_ledger_payload.build_payload(
+            _fact_sheet(projects=projects, orphans=orphans))
+
+        project_group = next(g for g in payload["groups"] if g["type"] == "project")
+        names = [e["name"] for e in project_group["entries"]]
+        # project-key order (alpha before zeta), THEN orphan-list order as given (b before a)
+        self.assertEqual(names, ["a1", "z1", "b1", "a-orphan"])
+
+        decided_sources = [(d["source"], d["source_file"]) for d in payload["decisions"]]
+        self.assertEqual(decided_sources, [("alpha", "d2.md"), ("zeta", "d1.md")])
+
+
+class TestLedgerStats(unittest.TestCase):
+    """Criterion 13."""
+
+    def test_stats_counts_match_arrays(self):
+        projects = {
+            "p1": _project_entry(
+                memory_entries=[_memory_entry(name="u", type_val="user"),
+                                 _memory_entry(name="f", type_val="feedback")],
+                decisions_entries=[_decision()],
+            ),
+            "p2": _project_entry(memory_entries=[_memory_entry(name="pr", type_val="project")]),
+        }
+        orphans = [_orphan_entry("s1", memory_entries=[_memory_entry(name="unt", type_val="weird")])]
+        payload = build_ledger_payload.build_payload(
+            _fact_sheet(projects=projects, orphans=orphans))
+
+        total_from_groups = sum(len(g["entries"]) for g in payload["groups"])
+        self.assertEqual(payload["stats"]["total_entries"], total_from_groups)
+        for g in payload["groups"]:
+            self.assertEqual(payload["stats"]["by_group"][g["type"]], len(g["entries"]))
+        self.assertEqual(payload["stats"]["steering_decisions"], len(payload["decisions"]))
+
+
+class TestLedgerCaveats(unittest.TestCase):
+    """Criteria 14-15."""
+
+    def test_caveat_added_for_failed_or_partial_source(self):
+        projects = {
+            "broken": _project_entry(memory_status="failed", memory_reason="2 files unparseable"),
+            "partial": _project_entry(
+                memory_entries=[_memory_entry(name="ok1")],
+                memory_status="ok", memory_reason="partial: 1 unparseable",
+            ),
+            "clean": _project_entry(memory_entries=[_memory_entry(name="ok2")]),
+        }
+        payload = build_ledger_payload.build_payload(_fact_sheet(projects=projects))
+        caveat_sources = {(c["source"], c["kind"], c["status"]) for c in payload["caveats"]}
+        self.assertIn(("broken", "memory", "failed"), caveat_sources)
+        self.assertIn(("partial", "memory", "ok"), caveat_sources)
+        self.assertNotIn("clean", {c["source"] for c in payload["caveats"]})
+
+    def test_caveat_added_for_unreadable_root(self):
+        root = "/Users/alice/Projects"
+        root_slug = build_ledger_payload.slug(os.path.normpath(root))
+        orphan_slug = "{0}-gone".format(root_slug)
+        roots_failed = {root: {"status": "failed", "reason": "permission denied", "projects": 0}}
+        orphans = [_orphan_entry(orphan_slug, memory_entries=[_memory_entry(name="g1")])]
+        payload = build_ledger_payload.build_payload(
+            _fact_sheet(orphans=orphans, roots=roots_failed))
+        root_caveats = [c for c in payload["caveats"] if c["kind"] == "root_unreadable"]
+        self.assertEqual(len(root_caveats), 1)
+        self.assertEqual(root_caveats[0]["source"], "gone")
+        self.assertEqual(root_caveats[0]["source_kind"], "orphan")
+        self.assertEqual(root_caveats[0]["status"], "failed")
+
+        # An "empty" root is also unreadable-caveat-worthy; an "ok" root is not.
+        roots_empty = {root: {"status": "empty", "reason": None, "projects": 0}}
+        payload_empty = build_ledger_payload.build_payload(
+            _fact_sheet(orphans=orphans, roots=roots_empty))
+        self.assertEqual(
+            len([c for c in payload_empty["caveats"] if c["kind"] == "root_unreadable"]), 1)
+
+        roots_ok = {root: {"status": "ok", "reason": None, "projects": 1}}
+        payload_ok = build_ledger_payload.build_payload(
+            _fact_sheet(orphans=orphans, roots=roots_ok))
+        self.assertEqual(
+            len([c for c in payload_ok["caveats"] if c["kind"] == "root_unreadable"]), 0)
+
+
+class TestLedgerTemplateStaticStructure(unittest.TestCase):
+    """Criteria 16-20."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.template = _read_ledger_template()
+
+    def test_ledger_template_no_external_urls(self):
+        self.assertNotIn("http://", self.template)
+        self.assertNotIn("https://", self.template)
+
+    def test_ledger_template_has_reduced_motion_media_query(self):
+        self.assertIn("@media (prefers-reduced-motion: reduce)", self.template)
+
+    def test_ledger_template_has_theme_aware_rules(self):
+        self.assertIn("@media (prefers-color-scheme: dark)", self.template)
+        self.assertIn('data-theme="dark"', self.template)
+
+    def test_ledger_template_marker_present_exactly_once_in_id_script_block(self):
+        self.assertEqual(self.template.count(render_report.MARKER), 1)
+        marker_idx = self.template.index(render_report.MARKER)
+        script_open = self.template.rindex(
+            '<script type="application/json" id="sarathi-payload">', 0, marker_idx)
+        script_close = self.template.index("</script>", marker_idx)
+        self.assertLess(script_open, marker_idx)
+        self.assertLess(marker_idx, script_close)
+
+    def test_ledger_template_no_document_wrapper_tags(self):
+        self.assertNotIn("<!DOCTYPE", self.template)
+        self.assertNotIn("<html", self.template)
+        self.assertNotIn("<head>", self.template)
+        self.assertNotIn("<body>", self.template)
+
+    def test_ledger_template_no_machine_specific_path(self):
+        self.assertNotIn("/Users/", self.template)
+        self.assertNotIn("/home/", self.template)
+
+
+class TestRenderReportPyUnchanged(unittest.TestCase):
+    """Criterion 21: render_report.py has zero diff in this story. Compared
+    by content hash (not `git diff`, since this story's coder is barred from
+    running any git command) against the fingerprint recorded above, taken
+    from the SAR-04-shipped file before this story touched anything else."""
+
+    def test_render_report_py_unchanged(self):
+        with open(RENDER_REPORT_PATH, encoding="utf-8") as fh:
+            source = fh.read()
+        digest = hashlib.sha256(source.encode("utf-8")).hexdigest()
+        self.assertEqual(digest, RENDER_REPORT_PY_SHA256)
+
+
+class TestLedgerPayloadExampleSchemaShape(unittest.TestCase):
+    """Criterion 22, mirrors TestPayloadExampleSchemaShape's pattern exactly,
+    pointed at the ledger template and this story's §6 pinned example."""
+
+    def test_ledger_payload_example_matches_pinned_schema_shape(self):
+        payload = PINNED_LEDGER_PAYLOAD_EXAMPLE
+        self.assertIn("meta", payload)
+        self.assertIn("stats", payload)
+        self.assertIn("groups", payload)
+        self.assertIn("decisions", payload)
+        self.assertIn("caveats", payload)
+        self.assertNotIn("voice", payload["meta"])
+        types = [g["type"] for g in payload["groups"]]
+        self.assertEqual(types, ["user", "feedback", "project", "reference", "untyped"])
+
+    def test_ledger_payload_example_renders_without_error(self):
+        out = render_report.render_fragment(_read_ledger_template(), PINNED_LEDGER_PAYLOAD_EXAMPLE)
+        self.assertEqual(
+            json.loads(_extract_injected_json(out)), PINNED_LEDGER_PAYLOAD_EXAMPLE)
+
+
+class TestRenderStandaloneLedger(unittest.TestCase):
+    """Criterion 23, mirrors test_render_report_cli_standalone_mode."""
+
+    def test_render_standalone_ledger_title_and_wrapper(self):
+        out = render_report.render_standalone(
+            _read_ledger_template(), PINNED_LEDGER_PAYLOAD_EXAMPLE, "Sarathi — Memory Ledger")
+        self.assertEqual(out.count("<!DOCTYPE html>"), 1)
+        self.assertEqual(out.count("<head>"), 1)
+        self.assertIn("<title>Sarathi — Memory Ledger</title>", out)
+        fragment = render_report.render_fragment(
+            _read_ledger_template(), PINNED_LEDGER_PAYLOAD_EXAMPLE)
+        self.assertIn(fragment, out)
+
+
+class TestRenderReportCliLedgerFile(unittest.TestCase):
+    """CLI path parity, mirroring test_render_report_cli_writes_expected_file,
+    pointed at the ledger template/payload."""
+
+    def test_render_report_cli_writes_expected_ledger_file(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            payload_path = os.path.join(tmp, "payload.json")
+            with open(payload_path, "w", encoding="utf-8") as fh:
+                json.dump(PINNED_LEDGER_PAYLOAD_EXAMPLE, fh)
+            out_path = os.path.join(tmp, "fragment.html")
+            r = subprocess.run(
+                [sys.executable, RENDER_REPORT_PATH,
+                 "--template", LEDGER_TEMPLATE_PATH,
+                 "--payload", payload_path,
+                 "--out", out_path],
+                capture_output=True, text=True,
+            )
+            self.assertEqual(r.returncode, 0, r.stderr)
+            with open(out_path, encoding="utf-8") as fh:
+                cli_output = fh.read()
+            direct_output = render_report.render_fragment(
+                _read_ledger_template(), PINNED_LEDGER_PAYLOAD_EXAMPLE)
+            self.assertEqual(cli_output, direct_output)
+
+
+class TestBuildLedgerPayloadCLI(unittest.TestCase):
+    """The build_ledger_payload.py CLI path -- --facts/--out mirror
+    render_report.py's own --template/--payload/--out conventions."""
+
+    def test_build_ledger_payload_cli_writes_expected_payload(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            projects = {"p": _project_entry(memory_entries=[_memory_entry(name="n1")])}
+            fs = _fact_sheet(projects=projects)
+            facts_path = os.path.join(tmp, "facts.json")
+            with open(facts_path, "w", encoding="utf-8") as fh:
+                json.dump(fs, fh)
+            out_path = os.path.join(tmp, "payload.json")
+            r = subprocess.run(
+                [sys.executable, os.path.join(MEMORY_SKILL_DIR, "build_ledger_payload.py"),
+                 "--facts", facts_path, "--out", out_path],
+                capture_output=True, text=True,
+            )
+            self.assertEqual(r.returncode, 0, r.stderr)
+            with open(out_path, encoding="utf-8") as fh:
+                cli_payload = json.load(fh)
+            direct_payload = build_ledger_payload.build_payload(fs)
+            self.assertEqual(cli_payload, direct_payload)
+
+
+class TestMemorySkillFrontmatter(unittest.TestCase):
+    """Criterion 32."""
+
+    def test_skill_frontmatter_omits_ask_user_question(self):
+        skill_path = os.path.join(REPO_ROOT, "skills", "memory", "SKILL.md")
+        with open(skill_path, encoding="utf-8") as fh:
+            text = fh.read()
+        m = re.search(r"^allowed-tools:\s*(.+)$", text, re.MULTILINE)
+        self.assertIsNotNone(m)
+        tools = [t.strip() for t in m.group(1).split(",")]
+        self.assertNotIn("AskUserQuestion", tools)
+        self.assertIn("Bash", tools)
+        self.assertIn("Read", tools)
+        self.assertIn("Write", tools)
+        self.assertIn("Artifact", tools)
+
+
+class TestMemorySkillEnvironmentNeutral(unittest.TestCase):
+    """Criterion 37: no machine-specific path in either shipped memory file."""
+
+    def test_no_machine_specific_path_in_shipped_memory_files(self):
+        for rel in ("skills/memory/SKILL.md", "skills/memory/ledger-template.html"):
+            path = os.path.join(REPO_ROOT, rel)
+            with open(path, encoding="utf-8") as fh:
+                text = fh.read()
+            self.assertNotIn("/Users/", text, rel)
+            self.assertNotIn("/home/", text, rel)
+
+
+class TestLedgerPluginJsonVersionBump(unittest.TestCase):
+    """Criterion 36, parallel to TestPluginManifests.test_plugin_json_valid
+    above (already updated to 0.5.0 for this story)."""
+
+    def test_plugin_json_version_bump(self):
+        path = os.path.join(REPO_ROOT, ".claude-plugin", "plugin.json")
+        with open(path, encoding="utf-8") as fh:
+            data = json.load(fh)
+        self.assertEqual(data["version"], "0.5.0")
 
 
 if __name__ == "__main__":

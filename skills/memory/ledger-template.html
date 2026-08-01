@@ -1,0 +1,404 @@
+<style>
+  .sarathi-ledger {
+    --bg: #F2F1EF; --surface: #FFFFFF; --ink: #23262E; --muted: #5D636E; --faint: #8A909B;
+    --line: #DEDCD6; --gold: #8A6D1F; --gold-soft: #F3ECD8;
+    --user: #6B4FA0; --user-soft: #EFE9F6;
+    --feedback: #1C7A6E; --feedback-soft: #E2F1EE;
+    --project: #2A5FA0; --project-soft: #E6EEF8;
+    --reference: #A0632A; --reference-soft: #F8EEE6;
+    --untyped: #6E7480; --untyped-soft: #ECEDEF;
+    --decision: #7A3B3B; --decision-soft: #F6E9E9;
+    --code-bg: #EAE8E3;
+    background: var(--bg); color: var(--ink);
+    font: 15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    max-width: 780px; margin: 0 auto; padding: 44px 22px 72px;
+  }
+  @media (prefers-color-scheme: dark) {
+    .sarathi-ledger {
+      --bg: #15141A; --surface: #1D1B24; --ink: #E7E6EA; --muted: #A3A1AC; --faint: #6E6C78;
+      --line: #2C2A34; --gold: #D8B85C; --gold-soft: #2E2A17;
+      --user: #B49CE0; --user-soft: #2A2436;
+      --feedback: #5FC2B2; --feedback-soft: #1B2B28;
+      --project: #7FB0E6; --project-soft: #1D2A38;
+      --reference: #E0A374; --reference-soft: #2E2419;
+      --untyped: #9A9CA8; --untyped-soft: #24232B;
+      --decision: #D89494; --decision-soft: #2E1F1F;
+      --code-bg: #26242E;
+    }
+  }
+  :root[data-theme="light"] .sarathi-ledger {
+    --bg: #F2F1EF; --surface: #FFFFFF; --ink: #23262E; --muted: #5D636E; --faint: #8A909B;
+    --line: #DEDCD6; --gold: #8A6D1F; --gold-soft: #F3ECD8;
+    --user: #6B4FA0; --user-soft: #EFE9F6;
+    --feedback: #1C7A6E; --feedback-soft: #E2F1EE;
+    --project: #2A5FA0; --project-soft: #E6EEF8;
+    --reference: #A0632A; --reference-soft: #F8EEE6;
+    --untyped: #6E7480; --untyped-soft: #ECEDEF;
+    --decision: #7A3B3B; --decision-soft: #F6E9E9;
+    --code-bg: #EAE8E3;
+  }
+  :root[data-theme="dark"] .sarathi-ledger {
+    --bg: #15141A; --surface: #1D1B24; --ink: #E7E6EA; --muted: #A3A1AC; --faint: #6E6C78;
+    --line: #2C2A34; --gold: #D8B85C; --gold-soft: #2E2A17;
+    --user: #B49CE0; --user-soft: #2A2436;
+    --feedback: #5FC2B2; --feedback-soft: #1B2B28;
+    --project: #7FB0E6; --project-soft: #1D2A38;
+    --reference: #E0A374; --reference-soft: #2E2419;
+    --untyped: #9A9CA8; --untyped-soft: #24232B;
+    --decision: #D89494; --decision-soft: #2E1F1F;
+    --code-bg: #26242E;
+  }
+
+  .sarathi-ledger * { box-sizing: border-box; }
+  .sarathi-ledger .sl-serif { font-family: Charter, "Iowan Old Style", Georgia, serif; }
+  .sarathi-ledger code, .sarathi-ledger .sl-chip.type {
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  }
+
+  /* -- motion: reveal only, no meters (SAR-05 §7 -- this page has none) -- */
+  .sarathi-ledger .rv {
+    opacity: 0; transform: translateY(14px);
+    transition: opacity .55s ease, transform .55s cubic-bezier(.2,.7,.3,1);
+  }
+  .sarathi-ledger .rv.in { opacity: 1; transform: none; }
+  @media (prefers-reduced-motion: reduce) {
+    .sarathi-ledger .rv {
+      opacity: 1 !important; transform: none !important; transition: none !important;
+    }
+  }
+
+  /* -- chrome ------------------------------------------------------------ */
+  .sarathi-ledger .sl-topbar {
+    display: flex; justify-content: space-between; align-items: baseline;
+    gap: 12px; flex-wrap: wrap; margin-bottom: 26px;
+  }
+  .sarathi-ledger .sl-brand { font-family: Charter, Georgia, serif; font-weight: 700; font-size: 17px; }
+  .sarathi-ledger .sl-brand .sl-dev { color: var(--gold); }
+  .sarathi-ledger .sl-version {
+    font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums;
+  }
+  .sarathi-ledger h1 {
+    font-family: Charter, "Iowan Old Style", Georgia, serif; font-size: 30px; font-weight: 700;
+    margin: 0 0 6px; letter-spacing: -.01em; text-wrap: balance;
+  }
+  .sarathi-ledger .sl-sub { color: var(--muted); margin: 0 0 24px; max-width: 60ch; }
+
+  .sarathi-ledger .sl-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 8px; }
+  @media (max-width: 560px) { .sarathi-ledger .sl-stats { grid-template-columns: 1fr; } }
+  .sarathi-ledger .sl-stat {
+    background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 12px 13px;
+  }
+  .sarathi-ledger .sl-num {
+    display: block; font-size: 22px; font-variant-numeric: tabular-nums;
+    font-family: Charter, Georgia, serif;
+  }
+  .sarathi-ledger .sl-stat span {
+    color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .05em;
+  }
+
+  /* -- sections ------------------------------------------------------------ */
+  .sarathi-ledger .sl-sec h2 {
+    font-family: Charter, Georgia, serif; font-size: 19px; margin: 38px 0 4px;
+    display: flex; align-items: center; gap: 10px;
+  }
+  .sarathi-ledger .sl-sec h2 .sl-glyph {
+    font-size: 11px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase;
+    padding: 2px 9px; border-radius: 999px; flex: none;
+  }
+  .sarathi-ledger .sec-user h2 .sl-glyph { background: var(--user-soft); color: var(--user); }
+  .sarathi-ledger .sec-feedback h2 .sl-glyph { background: var(--feedback-soft); color: var(--feedback); }
+  .sarathi-ledger .sec-project h2 .sl-glyph { background: var(--project-soft); color: var(--project); }
+  .sarathi-ledger .sec-reference h2 .sl-glyph { background: var(--reference-soft); color: var(--reference); }
+  .sarathi-ledger .sec-untyped h2 .sl-glyph { background: var(--untyped-soft); color: var(--untyped); }
+  .sarathi-ledger .sec-decisions h2 .sl-glyph { background: var(--decision-soft); color: var(--decision); }
+  .sarathi-ledger .sl-lede { color: var(--muted); font-size: 13px; margin: 0 0 14px; }
+  .sarathi-ledger .sl-none {
+    color: var(--faint); font-size: 13.5px; font-style: italic; margin: 0 0 10px;
+  }
+
+  .sarathi-ledger .sl-item {
+    background: var(--surface); border: 1px solid var(--line); border-radius: 8px;
+    padding: 13px 16px; margin-bottom: 10px;
+  }
+  .sarathi-ledger .sl-item-top {
+    display: flex; align-items: baseline; gap: 9px; flex-wrap: wrap; margin-bottom: 3px;
+  }
+  .sarathi-ledger .sl-item-top h3 { font-size: 15px; margin: 0; font-weight: 650; }
+  .sarathi-ledger .sl-desc { margin: 4px 0 0; font-size: 13.5px; color: var(--ink); line-height: 1.5; }
+  .sarathi-ledger .sl-metarow { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+  .sarathi-ledger .sl-chip {
+    display: inline-block; font-size: 10px; font-weight: 700; letter-spacing: .04em;
+    padding: 2px 8px; border-radius: 999px; white-space: nowrap;
+  }
+  .sarathi-ledger .sl-chip.source { background: var(--code-bg); color: var(--muted); font-weight: 500; letter-spacing: 0; }
+  .sarathi-ledger .sl-chip.date { background: var(--code-bg); color: var(--muted); font-weight: 500; letter-spacing: 0; }
+  .sarathi-ledger .sl-chip.type {
+    background: var(--gold-soft); color: var(--gold); text-transform: none; font-weight: 600;
+  }
+  .sarathi-ledger .sl-threads { margin: 8px 0 0; padding-left: 18px; font-size: 12.5px; color: var(--muted); }
+  .sarathi-ledger .sl-threads li { margin: 2px 0; }
+
+  /* -- steering decisions (static, unanimated -- SAR-05 §7) -------------- */
+  .sarathi-ledger .sec-decisions .sl-item { background: var(--decision-soft); }
+  .sarathi-ledger .sl-verdict {
+    font-size: 11px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase;
+    color: var(--decision); background: var(--surface); border-radius: 999px; padding: 2px 9px;
+  }
+
+  /* -- data reliability notes ---------------------------------------------- */
+  .sarathi-ledger .sl-caveats { margin-top: 40px; }
+  .sarathi-ledger .sl-caveats h2 {
+    font-family: Charter, Georgia, serif; font-size: 15px; margin: 0 0 8px;
+  }
+  .sarathi-ledger .sl-caveat {
+    font-size: 12.5px; color: var(--muted); border-top: 1px solid var(--line); padding: 8px 0;
+  }
+  .sarathi-ledger .sl-caveat:first-child { border-top: 0; }
+
+  .sarathi-ledger .sl-foot {
+    margin-top: 44px; color: var(--faint); font-size: 12px; border-top: 1px solid var(--line);
+    padding-top: 14px; max-width: 74ch;
+  }
+  .sarathi-ledger .sl-error { color: var(--decision); font-size: 13.5px; }
+</style>
+
+<div class="sarathi-ledger" id="sarathi-ledger">
+  <div class="sl-topbar">
+    <div class="sl-brand sl-serif">Sarathi <span class="sl-dev">— Memory Ledger</span></div>
+    <div class="sl-version" id="sl-meta"></div>
+  </div>
+
+  <header>
+    <h1>Everything Sarathi remembers about you</h1>
+    <p class="sl-sub" id="sl-subtitle"></p>
+  </header>
+
+  <div class="sl-stats" id="sl-stats"></div>
+
+  <section class="sl-sec sec-user">
+    <h2><span class="sl-glyph">about you</span></h2>
+    <div class="sl-items" id="group-user"></div>
+  </section>
+
+  <section class="sl-sec sec-feedback">
+    <h2><span class="sl-glyph">working style</span></h2>
+    <div class="sl-items" id="group-feedback"></div>
+  </section>
+
+  <section class="sl-sec sec-project">
+    <h2><span class="sl-glyph">project state</span></h2>
+    <div class="sl-items" id="group-project"></div>
+  </section>
+
+  <section class="sl-sec sec-reference">
+    <h2><span class="sl-glyph">reference</span></h2>
+    <div class="sl-items" id="group-reference"></div>
+  </section>
+
+  <section class="sl-sec sec-untyped">
+    <h2><span class="sl-glyph">untyped</span></h2>
+    <div class="sl-items" id="group-untyped"></div>
+  </section>
+
+  <section class="sl-sec sec-decisions">
+    <h2><span class="sl-glyph">steering decisions</span></h2>
+    <p class="sl-lede">Already decided — verdict, date, and reason, exactly as written.</p>
+    <div class="sl-items" id="sl-decisions"></div>
+  </section>
+
+  <div class="sl-caveats" id="sl-caveats-wrap" hidden>
+    <h2 class="sl-serif">Data reliability notes</h2>
+    <div id="sl-caveats"></div>
+  </div>
+
+  <footer class="sl-foot">
+    Every field on this page is copied verbatim from your own memory files and steering
+    decisions — nothing here is written or paraphrased by the model. Group placement is a
+    fixed rule based on each entry's own <code>type</code> value; an entry's raw type is shown
+    on its card whenever it differs from the group it's filed under.
+  </footer>
+</div>
+
+<script type="application/json" id="sarathi-payload">
+__SARATHI_REPORT_PAYLOAD__
+</script>
+
+<script>
+(function () {
+  var root = document.getElementById('sarathi-ledger');
+  if (!root) { return; }
+
+  var payloadEl = document.getElementById('sarathi-payload');
+  var payload = null;
+  try {
+    payload = JSON.parse(payloadEl.textContent);
+  } catch (err) {
+    var errEl = document.createElement('p');
+    errEl.className = 'sl-error';
+    errEl.textContent = 'Sarathi memory ledger: the embedded payload could not be parsed.';
+    root.appendChild(errEl);
+    return;
+  }
+
+  var reduced = !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+
+  function make(tag, cls, content) {
+    var e = document.createElement(tag);
+    if (cls) { e.className = cls; }
+    if (content !== undefined && content !== null) { e.textContent = content; }
+    return e;
+  }
+
+  function chip(cls, content) {
+    return make('span', 'sl-chip ' + cls, content);
+  }
+
+  function num(n) {
+    return (typeof n === 'number' && isFinite(n)) ? n : 0;
+  }
+
+  // ---------------------------------------------------------------- meta
+  var meta = payload.meta || {};
+  var metaEl = document.getElementById('sl-meta');
+  if (metaEl) {
+    metaEl.appendChild(make('span', null, meta.version_label || meta.as_of || ''));
+  }
+  var subtitleEl = document.getElementById('sl-subtitle');
+  if (subtitleEl) {
+    var parts = [];
+    if (meta.as_of) { parts.push('as of ' + meta.as_of); }
+    parts.push('quoted exactly as your memory files and decisions record it');
+    subtitleEl.textContent = parts.join(' — ') + '.';
+  }
+
+  // --------------------------------------------------------------- stats
+  var stats = payload.stats || {};
+  var statDefs = [
+    ['total_entries', 'memory entries'],
+    ['sources_with_memory', 'sources with memory'],
+    ['steering_decisions', 'steering decisions']
+  ];
+  var statsEl = document.getElementById('sl-stats');
+  if (statsEl) {
+    statDefs.forEach(function (def) {
+      var card = make('div', 'sl-stat');
+      card.appendChild(make('b', 'sl-num sl-serif', String(num(stats[def[0]]))));
+      card.appendChild(make('span', null, def[1]));
+      statsEl.appendChild(card);
+    });
+  }
+
+  // ------------------------------------------------------------- entries
+  function renderEntry(entry, groupType, revealClass) {
+    entry = entry || {};
+    var art = document.createElement('article');
+    art.className = 'sl-item' + (revealClass ? ' ' + revealClass : '');
+
+    var top = make('div', 'sl-item-top');
+    top.appendChild(make('h3', null, entry.name || ''));
+    art.appendChild(top);
+
+    if (entry.desc) {
+      art.appendChild(make('p', 'sl-desc', entry.desc));
+    }
+
+    var row = make('div', 'sl-metarow');
+    row.appendChild(chip('source', (entry.source || '') + (entry.source_kind ? ' · ' + entry.source_kind : '')));
+    if (entry.date) { row.appendChild(chip('date', entry.date)); }
+    // Fable ruling 1 (acceptance criterion 40): show the raw `type` value
+    // whenever it differs from the group it's filed under, so a
+    // hand-written unusual type stands out inside the untyped bucket
+    // instead of blending into truly-untyped notes.
+    if (entry.type && entry.type !== groupType) {
+      row.appendChild(chip('type', entry.type));
+    }
+    art.appendChild(row);
+
+    if (entry.threads && entry.threads.length) {
+      var ul = make('ul', 'sl-threads');
+      entry.threads.forEach(function (t) { ul.appendChild(make('li', null, t)); });
+      art.appendChild(ul);
+    }
+    return art;
+  }
+
+  function renderGroup(group) {
+    group = group || {};
+    var container = document.getElementById('group-' + group.type);
+    if (!container) { return; }
+    var entries = group.entries || [];
+    if (entries.length === 0) {
+      container.appendChild(make('p', 'sl-none', 'None recorded.'));
+      return;
+    }
+    entries.forEach(function (entry, i) {
+      var el = renderEntry(entry, group.type, reduced ? null : 'rv');
+      if (!reduced) { el.style.transitionDelay = (Math.min(i % 6, 4) * 60) + 'ms'; }
+      container.appendChild(el);
+    });
+  }
+
+  (payload.groups || []).forEach(function (group) { renderGroup(group); });
+
+  // ---------------------------------------------------------- decisions
+  // Static, unanimated (no 'rv' class) -- mirrors SAR-04 §7's "ruled items
+  // are settled history" precedent: a decision, once written, shouldn't
+  // animate as if it just arrived.
+  var decisionsEl = document.getElementById('sl-decisions');
+  var decisions = payload.decisions || [];
+  if (decisionsEl) {
+    if (decisions.length === 0) {
+      decisionsEl.appendChild(make('p', 'sl-none', 'Nothing ruled yet.'));
+    } else {
+      decisions.forEach(function (d) {
+        d = d || {};
+        var art = document.createElement('article');
+        art.className = 'sl-item';
+        var top = make('div', 'sl-item-top');
+        top.appendChild(make('h3', null, (d.source || '') + (d.source_kind ? ' (' + d.source_kind + ')' : '')));
+        top.appendChild(make('span', 'sl-verdict', (d.verdict || '') + (d.decided ? ' · ' + d.decided : '')));
+        art.appendChild(top);
+        if (d.reason) { art.appendChild(make('p', 'sl-desc', d.reason)); }
+        var row = make('div', 'sl-metarow');
+        if (d.source_file) { row.appendChild(chip('source', d.source_file)); }
+        if (d.expired) { row.appendChild(chip('type', 'expired')); }
+        art.appendChild(row);
+        decisionsEl.appendChild(art);
+      });
+    }
+  }
+
+  // ------------------------------------------------------------ caveats
+  var caveats = payload.caveats || [];
+  var caveatsWrap = document.getElementById('sl-caveats-wrap');
+  var caveatsEl = document.getElementById('sl-caveats');
+  if (caveats.length && caveatsWrap && caveatsEl) {
+    caveatsWrap.hidden = false;
+    caveats.forEach(function (c) {
+      c = c || {};
+      var line = make('p', 'sl-caveat',
+        (c.source || '') + ' (' + (c.source_kind || '') + ', ' + (c.kind || '') + '): '
+        + (c.status || '') + (c.reason ? ' — ' + c.reason : ''));
+      caveatsEl.appendChild(line);
+    });
+  }
+
+  // -------------------------------------------------- motion wiring
+  var revealables = root.querySelectorAll('.rv');
+  if (!reduced && 'IntersectionObserver' in window) {
+    var io = new IntersectionObserver(function (entries) {
+      entries.forEach(function (entry) {
+        if (entry.isIntersecting) {
+          entry.target.classList.add('in');
+          io.unobserve(entry.target);
+        }
+      });
+    }, { threshold: 0.12 });
+    revealables.forEach(function (elm) { io.observe(elm); });
+  } else {
+    // Reduced motion, or no IntersectionObserver: everything is already
+    // fully visible by construction above.
+    revealables.forEach(function (elm) { elm.classList.add('in'); });
+  }
+})();
+</script>
