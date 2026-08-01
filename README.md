@@ -20,16 +20,27 @@ Sarathi is a four-stage loop:
 
 Since v0.5, a second, independent living artifact sits alongside the report: **"Sarathi —
 Memory Ledger"** — every memory entry and every steering decision the fact sheet carries,
-quoted verbatim, grouped into five fixed categories (about you / working style / project
-state / reference / untyped), published by `/sarathi:memory`. It performs no interpretation
-at all — no moving/losing-steam/forgotten/ruled classification, no voice, nothing composed
-by the model — a pure, read-only display of what `/sarathi:report` already reads about your
-memory files and decisions, redeployed to its own URL the same way. Run either skill, both,
-or neither, in any order; they never depend on each other.
+quoted verbatim, grouped into three fixed modules — **dev setup**, **working style**, and
+**project memory** — published by `/sarathi:memory`. It performs no interpretation at all — no
+moving/losing-steam/forgotten/ruled classification, no voice, nothing composed by the model —
+a pure, read-only display of what `/sarathi:report` already reads about your memory files and
+decisions, redeployed to its own URL the same way. Run either skill, both, or neither, in any
+order; they never depend on each other.
 
-**Current version: v0.5 — measure + doctor, a cited-interpretation report published as one**
-**redeployed artifact (or a local fallback file), steer + realign, and now a second, independent**
-**living artifact — the memory ledger — exposing every memory entry and decision verbatim.**
+Since v0.6, the ledger page opens in a compact **simple** view by default — headline stats plus
+one line per entry — or a **verbose** view with every entry's full card, either by running
+`/sarathi:memory --verbose` or by using the on-page toggle after the fact; a click on any row
+also expands just that entry, independent of the page-wide view. Nothing about *what* the
+ledger shows changed, only how it's grouped (three modules instead of five) and how much of
+each entry is visible by default. If you've started tagging your own memory notes with a
+`type: setup` frontmatter value — a personal habit for environment/tooling facts, nothing
+Sarathi requires — those entries land in the `dev setup` module; everyone else simply sees that
+module render "None recorded." until they adopt the same convention.
+
+**Current version: v0.6 — measure + doctor, a cited-interpretation report published as one**
+**redeployed artifact (or a local fallback file), steer + realign, and a second, independent**
+**living artifact — the memory ledger, three modules wide, with simple/verbose views —**
+**exposing every memory entry and decision verbatim.**
 
 ## Requirements
 
@@ -50,7 +61,9 @@ writability) before writing anything — so there is no config file to hand-writ
 reports healthy, run `/sarathi:report` to get a cited interpretation of your projects, or
 `/sarathi:memory` to see the raw memory entries and steering decisions behind it, quoted
 verbatim with no interpretation at all — the two are independent; run either, or both, in
-any order.
+any order. `/sarathi:memory` opens its page in **simple** view by default; run
+`/sarathi:memory --verbose` to open it in **verbose** view instead — either way, the on-page
+toggle and each row's own click-to-expand switch density afterward without needing another run.
 
 `/plugin marketplace add` and `/plugin install` are Claude Code's own operations and do
 reach the network (GitHub) to fetch the marketplace and plugin contents — that access
