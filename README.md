@@ -10,14 +10,17 @@ Sarathi is a four-stage loop:
    counts, session recency, memory ages. Byte-identical output on identical input,
    provable with a hash.
 2. **Interpret** — an LLM reads the fact sheet and finds stalls, broken promises, and
-   drift. Every claim must cite the fact rows behind it.
+   drift. Every claim must cite the fact rows behind it. The deliverable is **one living,
+   animated artifact** — "Sarathi — Direction Report" — redeployed to the same URL every
+   run, so the artifact platform's own version picker becomes the report's run history;
+   when the Artifact tool isn't available, a local HTML file plays the same role instead.
 3. **Steer** — you answer a few small questions, only about what data can't answer.
 4. **Realign** — your answer becomes a dated decision ("parked, deliberately"), so the
    tool stops flagging what you already ruled on and gets quieter over time.
 
-**Current version: v0.3 — all four stages now ship: measure + doctor, a cited-interpretation**
-**report skill (moving / losing steam / forgotten / ruled), and steer + realign — your answers**
-**become dated decision files that quiet the report on every later run.**
+**Current version: v0.4 — all four stages now ship: measure + doctor, a cited-interpretation**
+**report published as one redeployed artifact (or a local fallback file), and steer + realign —**
+**your answers become dated decision files that quiet the report on every later run.**
 
 ## Requirements
 
@@ -42,6 +45,22 @@ reach the network (GitHub) to fetch the marketplace and plugin contents — that
 belongs to Claude Code's plugin infrastructure, not to Sarathi. Once installed, `sarathi.py`
 itself still makes zero network calls, exactly as described below: "no network, ever" is a
 claim about the tool, not about the one-time install step.
+
+**A second, equally explicit exception, since v0.4:** when you run `/sarathi:report` and
+the Artifact tool is available and used, the rendered report — project names, git/file/
+session-derived claims, memory-derived claims, citation paths, and the steer-preview text —
+is sent to the artifact-hosting platform so it can be rendered as a page with a shareable
+URL. This is content you were already going to read in the chat transcript; only *where it
+goes* is new. Scoped precisely: `sarathi.py` itself still makes zero network calls, always —
+the exposure is entirely inside the report skill's publish step, an LLM-driven action using a
+host-provided tool, the same category of exception as the plugin-install carve-out above
+(host infrastructure initiating the network access, not Sarathi's own code). It happens only
+when the Artifact tool is actually available and actually invoked — a session without that
+tool (the common case for a bare CLI / headless run) never sends anything anywhere; the
+local-fallback report file is fully local, matching every version through v0.3 exactly.
+Artifacts start private (shareable only if you later choose to share them) — not "posted
+publicly by default," but also not "stays on this machine." The skill states this every
+single run it happens, never a one-time decision you forget was made.
 
 ## Quick start (bare clone, no plugin)
 
@@ -85,8 +104,12 @@ computed against (defaults to today); same project trees + same date → byte-id
 - Fail loudly, never emptily — every section reports `ok` / `failed: reason` / `empty`;
   "couldn't look" is never dressed up as "nothing found".
 - Reads only local files; writes only its own output, plus (from v0.3) the decision files
-  `/sarathi:report`'s realign step writes on your explicit, answered say-so — never silent,
-  always shown to you verbatim with the exact path, never anything else. No network, no
+  `/sarathi:report`'s realign step writes on your explicit, answered say-so, plus (from v0.4)
+  the local-fallback report file the publish step writes only when the Artifact tool is
+  unavailable or errors — never silent, always shown to you verbatim with the exact path,
+  never anything else. `sarathi.py` itself makes zero network calls, always — the one
+  exception is `/sarathi:report`'s publish step sending the rendered report to the Artifact
+  tool's hosting platform, only when that tool is available and used (see above). No
   telemetry, ever.
 
 ## Uninstall
@@ -108,6 +131,7 @@ path, Sarathi's remaining footprint is small and fully accounted for:
 rm -rf <clone-dir>             # the code (wherever you cloned this repo), if you cloned it
 rm -rf <config-dir>/sarathi    # config; <config-dir> is $CLAUDE_CONFIG_DIR or ~/.claude
 rm <output-path>               # the fact sheet, at the output_path you set in config.json
+rm <dir of output-path>/report-*.html   # local fallback report(s), from v0.4, if any exist
 ```
 
 Since v0.3, `/sarathi:report`'s realign step also writes decision files named
@@ -118,10 +142,16 @@ introduced. They're plain markdown, easy to find (`find <config-dir>/projects -n
 'sarathi-decision-*.md'`) and delete by hand if you want a truly clean slate; leaving them is
 also fine — an uninstalled Sarathi simply stops reading them.
 
-That's a complete removal. Sarathi writes no caches, no state in your project
-directories, nothing outside the paths above — and `sarathi.py` itself never talks to the
-network, so there is no account or remote data to clean up (the plugin install step is the
-one exception, and it's Claude Code's own network access, not Sarathi's — see above).
+That's a complete removal of everything on this machine. Sarathi writes no caches, no state
+in your project directories, nothing outside the paths above — and `sarathi.py` itself never
+talks to the network, so there is no account or remote data of *its own* to clean up (the
+plugin-install step and, from v0.4, the Artifact-tool publish step are the two exceptions,
+and both are Claude Code's own network access, not Sarathi's — see above). One thing this
+local cleanup does **not** reach: if `/sarathi:report` ever published to the Artifact tool,
+an artifact titled "Sarathi — Direction Report" remains on that hosting platform, inert,
+after an uninstall — nothing in this codebase ever deletes an artifact it created, only
+creates or updates one, mirroring decision files' own never-delete discipline above. Delete
+it by hand on the artifact platform if you want it gone.
 
 ## Acknowledgements
 

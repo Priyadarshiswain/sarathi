@@ -1,0 +1,449 @@
+<style>
+  .sarathi-report {
+    --bg: #F2F3F1; --surface: #FFFFFF; --ink: #23262E; --muted: #5D636E; --faint: #8A909B;
+    --line: #DDE0DC; --saffron: #C97F1A; --saffron-soft: #F7EBD8;
+    --moving: #22705F; --moving-soft: #E0EFEA;
+    --losing: #A8681A; --losing-soft: #F6ECDA;
+    --forgotten: #7A7288; --forgotten-soft: #ECEAF0;
+    --ruled: #34406B; --ruled-soft: #E7EAF3;
+    --code-bg: #EAECE8;
+    background: var(--bg); color: var(--ink);
+    font: 15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    max-width: 780px; margin: 0 auto; padding: 44px 22px 72px;
+  }
+  @media (prefers-color-scheme: dark) {
+    .sarathi-report {
+      --bg: #14161C; --surface: #1C1F27; --ink: #E6E7EA; --muted: #A2A8B3; --faint: #6E7480;
+      --line: #2B2F3A; --saffron: #E0A144; --saffron-soft: #2E2517;
+      --moving: #5BBFA6; --moving-soft: #1C2E29;
+      --losing: #D9A44E; --losing-soft: #2E2617;
+      --forgotten: #8E86A0; --forgotten-soft: #24222C;
+      --ruled: #9AA8D8; --ruled-soft: #232A3D;
+      --code-bg: #262A34;
+    }
+  }
+  :root[data-theme="light"] .sarathi-report {
+    --bg: #F2F3F1; --surface: #FFFFFF; --ink: #23262E; --muted: #5D636E; --faint: #8A909B;
+    --line: #DDE0DC; --saffron: #C97F1A; --saffron-soft: #F7EBD8;
+    --moving: #22705F; --moving-soft: #E0EFEA;
+    --losing: #A8681A; --losing-soft: #F6ECDA;
+    --forgotten: #7A7288; --forgotten-soft: #ECEAF0;
+    --ruled: #34406B; --ruled-soft: #E7EAF3;
+    --code-bg: #EAECE8;
+  }
+  :root[data-theme="dark"] .sarathi-report {
+    --bg: #14161C; --surface: #1C1F27; --ink: #E6E7EA; --muted: #A2A8B3; --faint: #6E7480;
+    --line: #2B2F3A; --saffron: #E0A144; --saffron-soft: #2E2517;
+    --moving: #5BBFA6; --moving-soft: #1C2E29;
+    --losing: #D9A44E; --losing-soft: #2E2617;
+    --forgotten: #8E86A0; --forgotten-soft: #24222C;
+    --ruled: #9AA8D8; --ruled-soft: #232A3D;
+    --code-bg: #262A34;
+  }
+
+  .sarathi-report * { box-sizing: border-box; }
+  .sarathi-report .sr-serif { font-family: Charter, "Iowan Old Style", Georgia, serif; }
+  .sarathi-report code, .sarathi-report .chip.cite {
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  }
+
+  /* -- motion: reveal + meter fill -------------------------------------- */
+  .sarathi-report .rv {
+    opacity: 0; transform: translateY(16px);
+    transition: opacity .6s ease, transform .6s cubic-bezier(.2,.7,.3,1);
+  }
+  .sarathi-report .rv.in { opacity: 1; transform: none; }
+  .sarathi-report .rv-dim {
+    /* forgotten: no rise, just a slow, dim fade */
+    opacity: 0; transition: opacity 1.1s ease;
+  }
+  .sarathi-report .rv-dim.in { opacity: 1; }
+  .sarathi-report .meter i {
+    display: block; height: 100%; border-radius: 999px; width: 0;
+    transition: width 1s cubic-bezier(.2,.7,.3,1) .15s;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .sarathi-report .rv, .sarathi-report .rv-dim {
+      opacity: 1 !important; transform: none !important; transition: none !important;
+    }
+    .sarathi-report .meter i { transition: none !important; }
+  }
+
+  /* -- chrome ------------------------------------------------------------ */
+  .sarathi-report .sr-topbar {
+    display: flex; justify-content: space-between; align-items: baseline;
+    gap: 12px; flex-wrap: wrap; margin-bottom: 26px;
+  }
+  .sarathi-report .sr-brand { font-family: Charter, Georgia, serif; font-weight: 700; font-size: 17px; }
+  .sarathi-report .sr-brand .sr-dev { color: var(--saffron); }
+  .sarathi-report .sr-version {
+    font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums;
+  }
+  .sarathi-report h1 {
+    font-family: Charter, "Iowan Old Style", Georgia, serif; font-size: 32px; font-weight: 700;
+    margin: 0 0 6px; letter-spacing: -.01em; text-wrap: balance;
+  }
+  .sarathi-report .sr-sub { color: var(--muted); margin: 0 0 24px; max-width: 58ch; }
+
+  .sarathi-report .sr-stats { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; margin-bottom: 6px; }
+  @media (max-width: 620px) { .sarathi-report .sr-stats { grid-template-columns: 1fr 1fr; } }
+  .sarathi-report .sr-stat {
+    background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 12px 13px;
+  }
+  .sarathi-report .sr-num {
+    display: block; font-size: 24px; font-variant-numeric: tabular-nums;
+    font-family: Charter, Georgia, serif;
+  }
+  .sarathi-report .sr-stat span {
+    color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .05em;
+  }
+
+  /* -- sections ------------------------------------------------------------ */
+  .sarathi-report .sr-sec h2 {
+    font-family: Charter, Georgia, serif; font-size: 20px; margin: 40px 0 4px;
+    display: flex; align-items: center; gap: 10px;
+  }
+  .sarathi-report .sr-sec h2 .glyph {
+    font-size: 15px; width: 26px; height: 26px; border-radius: 7px; display: inline-flex;
+    align-items: center; justify-content: center; flex: none;
+  }
+  .sarathi-report .sec-moving h2 .glyph { background: var(--moving-soft); color: var(--moving); }
+  .sarathi-report .sec-losing h2 .glyph { background: var(--losing-soft); color: var(--losing); }
+  .sarathi-report .sec-forgotten h2 .glyph { background: var(--forgotten-soft); color: var(--forgotten); }
+  .sarathi-report .sec-ruled h2 .glyph { background: var(--ruled-soft); color: var(--ruled); }
+  .sarathi-report .sr-lede { color: var(--muted); font-size: 13px; margin: 0 0 14px; }
+  .sarathi-report .sr-none {
+    color: var(--faint); font-size: 13.5px; font-style: italic; margin: 0 0 10px;
+  }
+
+  .sarathi-report .sr-item {
+    background: var(--surface); border: 1px solid var(--line); border-radius: 8px;
+    padding: 13px 16px; margin-bottom: 10px;
+  }
+  .sarathi-report .sr-item-top {
+    display: flex; align-items: baseline; gap: 9px; flex-wrap: wrap; margin-bottom: 2px;
+  }
+  .sarathi-report .sr-item-top h3 { font-size: 15px; margin: 0; font-weight: 650; }
+  .sarathi-report .sr-kind {
+    font-size: 11.5px; font-style: italic; color: var(--faint);
+  }
+  .sarathi-report .sr-verdict {
+    font-size: 11px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase;
+    color: var(--ruled); background: var(--ruled-soft); border-radius: 999px; padding: 2px 9px;
+  }
+  .sarathi-report .sr-claim { margin: 7px 0 0; font-size: 13.5px; color: var(--ink); line-height: 1.5; }
+  .sarathi-report .sr-chiprow { display: inline-flex; gap: 6px; margin-top: 4px; flex-wrap: wrap; }
+  .sarathi-report .chip {
+    display: inline-block; font-size: 10px; font-weight: 700; letter-spacing: .04em;
+    padding: 2px 8px; border-radius: 999px; white-space: nowrap;
+  }
+  .sarathi-report .chip.cite {
+    background: var(--code-bg); color: var(--muted); font-weight: 500; letter-spacing: 0;
+    max-width: 100%; overflow-wrap: anywhere;
+  }
+  .sarathi-report .chip.label-m { background: var(--moving-soft); color: var(--moving); text-transform: uppercase; }
+  .sarathi-report .chip.label-d { background: var(--saffron-soft); color: var(--saffron); text-transform: uppercase; }
+
+  .sarathi-report .meter { height: 5px; background: var(--code-bg); border-radius: 999px; margin-top: 11px; overflow: hidden; }
+  .sarathi-report .sec-moving .meter i { background: var(--moving); }
+  .sarathi-report .sec-losing .meter i { background: var(--losing); }
+
+  .sarathi-report .sec-forgotten .sr-item { border-style: dashed; }
+  .sarathi-report .sec-forgotten .sr-item-top h3 { color: var(--muted); }
+  .sarathi-report .sec-forgotten .sr-claim { color: var(--muted); }
+
+  .sarathi-report .sec-ruled .sr-item { background: var(--ruled-soft); }
+  .sarathi-report .sec-ruled .sr-item-top h3 { color: var(--ink); }
+
+  /* -- steer preview (static, read-only) ---------------------------------- */
+  .sarathi-report .sr-ask {
+    background: var(--surface); border: 1px solid var(--saffron); border-radius: 10px;
+    padding: 18px 20px; margin-top: 44px;
+  }
+  .sarathi-report .sr-ask-who {
+    color: var(--saffron); font-size: 10.5px; font-weight: 700; letter-spacing: .09em;
+    text-transform: uppercase; display: block; margin-bottom: 10px;
+  }
+  .sarathi-report .sr-steer-list { display: flex; flex-direction: column; gap: 12px; }
+  .sarathi-report .sr-steer-row { border-top: 1px solid var(--line); padding-top: 10px; }
+  .sarathi-report .sr-steer-row:first-child { border-top: 0; padding-top: 0; }
+  .sarathi-report .sr-steer-key {
+    font-family: Charter, Georgia, serif; font-weight: 700; font-size: 14.5px; display: block;
+  }
+  .sarathi-report .sr-steer-prompt { margin: 3px 0 0; color: var(--muted); font-size: 13.5px; }
+  .sarathi-report .sr-steer-note {
+    margin: 14px 0 0; font-size: 11.5px; color: var(--faint); font-style: italic;
+  }
+
+  .sarathi-report .sr-foot {
+    margin-top: 44px; color: var(--faint); font-size: 12px; border-top: 1px solid var(--line);
+    padding-top: 14px; max-width: 74ch;
+  }
+  .sarathi-report .sr-error { color: var(--losing); font-size: 13.5px; }
+</style>
+
+<div class="sarathi-report" id="sarathi-report">
+  <div class="sr-topbar">
+    <div class="sr-brand sr-serif">Sarathi <span class="sr-dev">सारथी</span></div>
+    <div class="sr-version" id="sr-meta"></div>
+  </div>
+
+  <header>
+    <h1>Where your projects stand</h1>
+    <p class="sr-sub" id="sr-subtitle"></p>
+  </header>
+
+  <div class="sr-stats" id="sr-stats"></div>
+
+  <section class="sr-sec sec-moving">
+    <h2><span class="glyph">&#8599;</span><span>Moving</span></h2>
+    <p class="sr-lede">Real momentum — activity close to today, no dormancy signal.</p>
+    <div class="sr-items" id="items-moving"></div>
+  </section>
+
+  <section class="sr-sec sec-losing">
+    <h2><span class="glyph">&#8594;</span><span>Losing steam</span></h2>
+    <p class="sr-lede">A stall signal without full dormancy — recent enough to reverse cheaply.</p>
+    <div class="sr-items" id="items-losing"></div>
+  </section>
+
+  <section class="sr-sec sec-forgotten">
+    <h2><span class="glyph">&#9676;</span><span>Forgotten</span></h2>
+    <p class="sr-lede">Dormant projects, and memory trails with nothing left on disk.</p>
+    <div class="sr-items" id="items-forgotten"></div>
+  </section>
+
+  <section class="sr-sec sec-ruled">
+    <h2><span class="glyph">&#10003;</span><span>Ruled</span></h2>
+    <p class="sr-lede">Already decided — every current flag is covered by a standing decision.</p>
+    <div class="sr-items" id="items-ruled"></div>
+  </section>
+
+  <div class="sr-ask">
+    <span class="sr-ask-who">What steer is asking this run</span>
+    <div id="sr-steer-body"></div>
+  </div>
+
+  <footer class="sr-foot">
+    Chips: <code>measured</code> reads straight from the fact sheet a deterministic script wrote;
+    <code>derived</code> is the model's interpretation, still cited back to a fact. Steer questions
+    are named here for visibility only — they are asked and answered in your chat session, never
+    on this page.
+  </footer>
+</div>
+
+<script type="application/json" id="sarathi-payload">
+__SARATHI_REPORT_PAYLOAD__
+</script>
+
+<script>
+(function () {
+  var root = document.getElementById('sarathi-report');
+  if (!root) { return; }
+
+  var payloadEl = document.getElementById('sarathi-payload');
+  var payload = null;
+  try {
+    payload = JSON.parse(payloadEl.textContent);
+  } catch (err) {
+    var errEl = document.createElement('p');
+    errEl.className = 'sr-error';
+    errEl.textContent = 'Sarathi report: the embedded payload could not be parsed.';
+    root.appendChild(errEl);
+    return;
+  }
+
+  var reduced = !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+
+  function make(tag, cls, content) {
+    var e = document.createElement(tag);
+    if (cls) { e.className = cls; }
+    if (content !== undefined && content !== null) { e.textContent = content; }
+    return e;
+  }
+
+  function chip(cls, content) {
+    return make('span', 'chip ' + cls, content);
+  }
+
+  function num(n) {
+    return (typeof n === 'number' && isFinite(n)) ? n : 0;
+  }
+
+  function clampPct(n) {
+    var v = num(n);
+    return Math.max(0, Math.min(100, v));
+  }
+
+  // ---------------------------------------------------------------- meta
+  var meta = payload.meta || {};
+  var metaEl = document.getElementById('sr-meta');
+  if (metaEl) {
+    metaEl.appendChild(make('span', null, meta.version_label || meta.as_of || ''));
+  }
+  var subtitleEl = document.getElementById('sr-subtitle');
+  if (subtitleEl) {
+    var parts = [];
+    if (meta.as_of) { parts.push('as of ' + meta.as_of); }
+    parts.push('every line below traces to a fact-sheet row or is labeled as the model’s own read');
+    subtitleEl.textContent = parts.join(' — ') + '.';
+  }
+
+  // --------------------------------------------------------------- stats
+  var stats = payload.stats || {};
+  var statDefs = [
+    ['projects', 'projects on disk'],
+    ['moving', 'moving'],
+    ['losing_steam', 'losing steam'],
+    ['forgotten', 'forgotten'],
+    ['ruled', 'ruled']
+  ];
+  var statsEl = document.getElementById('sr-stats');
+  if (statsEl) {
+    statDefs.forEach(function (def) {
+      var card = make('div', 'sr-stat');
+      card.appendChild(make('b', 'sr-num sr-serif', String(num(stats[def[0]]))));
+      card.appendChild(make('span', null, def[1]));
+      statsEl.appendChild(card);
+    });
+  }
+
+  // ------------------------------------------------------------- claims
+  function renderClaim(claim) {
+    claim = claim || {};
+    var p = document.createElement('p');
+    p.className = 'sr-claim';
+    p.appendChild(document.createTextNode(claim.text || ''));
+    p.appendChild(document.createElement('br'));
+    var row = make('span', 'sr-chiprow');
+    row.appendChild(chip('cite', claim.citation || ''));
+    var labelCls = claim.label === 'measured' ? 'label-m' : 'label-d';
+    row.appendChild(chip(labelCls, claim.label || ''));
+    p.appendChild(row);
+    return p;
+  }
+
+  // -------------------------------------------------------------- items
+  function renderItem(item, opts) {
+    item = item || {};
+    var art = document.createElement('article');
+    art.className = 'sr-item' + (opts.revealClass ? ' ' + opts.revealClass : '');
+
+    var top = make('div', 'sr-item-top');
+    top.appendChild(make('h3', null, item.key || ''));
+    if (item.kind === 'orphan') {
+      top.appendChild(make('span', 'sr-kind', 'orphan — memory trail only'));
+    }
+    if (item.ruled_meta) {
+      var verdict = item.ruled_meta.verdict || '';
+      var decided = item.ruled_meta.decided || '';
+      top.appendChild(make('span', 'sr-verdict', verdict + (decided ? ' · ' + decided : '')));
+    }
+    art.appendChild(top);
+
+    (item.claims || []).forEach(function (c) { art.appendChild(renderClaim(c)); });
+
+    if (opts.meter) {
+      var meter = make('div', 'meter');
+      var i = document.createElement('i');
+      var pct = clampPct(item.momentum_pct);
+      i.setAttribute('data-w', String(pct));
+      if (reduced) { i.style.width = pct + '%'; }
+      meter.appendChild(i);
+      art.appendChild(meter);
+    }
+    return art;
+  }
+
+  function renderSection(containerId, items, opts) {
+    var container = document.getElementById(containerId);
+    if (!container) { return; }
+    if (!items || items.length === 0) {
+      container.appendChild(make('p', 'sr-none', opts.noneText));
+      return;
+    }
+    items.forEach(function (item) {
+      container.appendChild(renderItem(item, opts));
+    });
+  }
+
+  var sections = payload.sections || {};
+  renderSection('items-moving', sections.moving, {
+    revealClass: reduced ? null : 'rv',
+    meter: true,
+    noneText: 'None moving this run.'
+  });
+  renderSection('items-losing', sections.losing_steam, {
+    revealClass: reduced ? null : 'rv',
+    meter: true,
+    noneText: 'None losing steam this run.'
+  });
+  renderSection('items-forgotten', sections.forgotten, {
+    revealClass: reduced ? null : 'rv-dim',
+    meter: false,
+    noneText: 'Nothing forgotten this run.'
+  });
+  renderSection('items-ruled', sections.ruled, {
+    revealClass: null,
+    meter: false,
+    noneText: 'Nothing ruled yet.'
+  });
+
+  // ------------------------------------------------------- steer preview
+  var steerBody = document.getElementById('sr-steer-body');
+  var steerPreview = payload.steer_preview || [];
+  if (steerBody) {
+    if (steerPreview.length === 0) {
+      steerBody.appendChild(make('p', 'sr-none', 'Nothing to steer this run — no unruled drift.'));
+    } else {
+      var list = make('div', 'sr-steer-list');
+      steerPreview.forEach(function (s) {
+        s = s || {};
+        var row = make('div', 'sr-steer-row');
+        var label = (s.key || '') + (s.kind ? ' (' + s.kind + ')' : '');
+        row.appendChild(make('span', 'sr-steer-key sr-serif', label));
+        row.appendChild(make('p', 'sr-steer-prompt', s.prompt || ''));
+        list.appendChild(row);
+      });
+      steerBody.appendChild(list);
+      steerBody.appendChild(make('p', 'sr-steer-note',
+        'Static text only — answered in your chat session, never on this page.'));
+    }
+  }
+
+  // -------------------------------------------------- motion wiring
+  var revealables = root.querySelectorAll('.rv, .rv-dim');
+  if (!reduced && 'IntersectionObserver' in window) {
+    var io = new IntersectionObserver(function (entries) {
+      entries.forEach(function (entry) {
+        if (entry.isIntersecting) {
+          entry.target.classList.add('in');
+          io.unobserve(entry.target);
+        }
+      });
+    }, { threshold: 0.12 });
+    revealables.forEach(function (elm, idx) {
+      elm.style.transitionDelay = (Math.min(idx % 6, 4) * 70) + 'ms';
+      io.observe(elm);
+    });
+
+    var meters = root.querySelectorAll('.meter i');
+    var mio = new IntersectionObserver(function (entries) {
+      entries.forEach(function (entry) {
+        if (entry.isIntersecting) {
+          entry.target.style.width = entry.target.getAttribute('data-w') + '%';
+          mio.unobserve(entry.target);
+        }
+      });
+    }, { threshold: 0.4 });
+    meters.forEach(function (m) { mio.observe(m); });
+  } else {
+    // Reduced motion, or no IntersectionObserver: everything is already
+    // fully visible / fully filled by construction above.
+    revealables.forEach(function (elm) { elm.classList.add('in'); });
+    root.querySelectorAll('.meter i').forEach(function (m) {
+      m.style.width = (m.getAttribute('data-w') || '0') + '%';
+    });
+  }
+})();
+</script>
