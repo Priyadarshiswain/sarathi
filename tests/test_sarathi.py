@@ -607,7 +607,7 @@ class TestPluginManifests(unittest.TestCase):
         with open(path, encoding="utf-8") as fh:
             data = json.load(fh)
         self.assertEqual(data["name"], "sarathi")
-        self.assertEqual(data["version"], "0.7.0")
+        self.assertEqual(data["version"], "0.7.1")
 
     def test_marketplace_json_valid(self):
         plugin_path = os.path.join(REPO_ROOT, ".claude-plugin", "plugin.json")
@@ -2515,7 +2515,7 @@ class TestLedgerPluginJsonVersionBump(unittest.TestCase):
         path = os.path.join(REPO_ROOT, ".claude-plugin", "plugin.json")
         with open(path, encoding="utf-8") as fh:
             data = json.load(fh)
-        self.assertEqual(data["version"], "0.7.0")
+        self.assertEqual(data["version"], "0.7.1")
 
 
 # ----------------------------------------------------------------------------
