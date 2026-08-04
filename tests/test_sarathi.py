@@ -607,7 +607,7 @@ class TestPluginManifests(unittest.TestCase):
         with open(path, encoding="utf-8") as fh:
             data = json.load(fh)
         self.assertEqual(data["name"], "sarathi")
-        self.assertEqual(data["version"], "0.7.1")
+        self.assertEqual(data["version"], "0.8.0")  # SAR-09/10/11
 
     def test_marketplace_json_valid(self):
         plugin_path = os.path.join(REPO_ROOT, ".claude-plugin", "plugin.json")
@@ -1609,10 +1609,16 @@ RENDER_REPORT_PY_SHA256 = "77350c1e50183868312bc108c051034e6fa94e42fac95f2851ad7
 # SAR-05-shipped files on disk before this story touched anything else in
 # the repo, same rationale as RENDER_REPORT_PY_SHA256 above (no git command
 # available to this story's coder).
-SARATHI_PY_SHA256 = "5db339fc885be9de1b51d8f39035e4631ef8346ad66cc6fc5e891192be1da926"
-REPORT_SKILL_MD_SHA256 = "589a809cd742921470c9aba23145a51879ebfce522e78465882d39f151663149"
+# Re-pinned for SAR-09/SAR-10/SAR-11 (v0.8.0), which DELIBERATELY amend
+# sarathi.py (DECISION_FILENAME_RE slug form), skills/report/SKILL.md
+# (realign steps 2/4/6-7: slug filename + index-line append), and
+# docs/config-schema.md (decision-filename section) -- the guard's job is
+# catching *unintended* edits; an intended amendment updates the pin here
+# with its story reference, exactly this line.
+SARATHI_PY_SHA256 = "d05dbbdc9b766cd7247015feac04d5f6e2790bfbcc44b68498228b75c20aa53b"
+REPORT_SKILL_MD_SHA256 = "af86d2540f2e0d77e1515f077575a64f5e6e38c5fef33b478e9f4f6d05bfb4b9"
 REPORT_TEMPLATE_HTML_SHA256 = "ec461323557bbcd23764a3ef1ef9e49a13591dd583ac3a771853064ceddbd62c"
-CONFIG_SCHEMA_MD_SHA256 = "7ebd1db1cec3460ca8e14248f52461181134a463493b93be8f5da50ef294edd0"
+CONFIG_SCHEMA_MD_SHA256 = "926dbf05a7f9c64e83ee0c338a9a329c6e63613e2d0f9a4bfbde37a5f92d2155"
 
 # SAR-07 (story §10): sarathi.py, skills/report/*, skills/memory/*,
 # docs/config-schema.md, and .claude-plugin/marketplace.json all have zero
@@ -1620,7 +1626,10 @@ CONFIG_SCHEMA_MD_SHA256 = "7ebd1db1cec3460ca8e14248f52461181134a463493b93be8f5da
 # are new (no prior story hashed them); the rest reuse the constants above.
 # Same content-hash technique, same reason (no git command available to
 # this story's coder either).
-MEMORY_SKILL_MD_SHA256 = "7ca764aa3ebdf32ce706f75a4c741be5fec774d6efc52cdd45e3461a58baadd0"
+# Re-pinned for SAR-11 (v0.8.0): the memory skill gains the --scan mode
+# fork (§9) -- deliberate amendment, same rationale as the SAR-09 re-pins
+# above.
+MEMORY_SKILL_MD_SHA256 = "e3fd982cb9062df157a253b378ccc54a268f95cdd41276feed139d1763c9d301"
 BUILD_LEDGER_PAYLOAD_PY_SHA256 = "adbf9c7807dd9fde8e03dc79819ca2d7b724e57f574e9b8472430057ebacc2f7"
 LEDGER_TEMPLATE_HTML_SHA256 = "56dc8fdd5b590b2244a9413dd36b03e80ce0af269332481170fcc0451ec5c9dd"
 MARKETPLACE_JSON_SHA256 = "f6837d22fdf0e9e4a520420e9ef0935b984e40a05d92d49fa789d4be6dd824b8"
@@ -2474,16 +2483,19 @@ class TestBuildPayloadDefaultViewParameterDefault(unittest.TestCase):
 
 
 class TestMemorySkillFrontmatter(unittest.TestCase):
-    """Criterion 32."""
+    """Criterion 32 (SAR-05), amended by SAR-11: AskUserQuestion joins
+    allowed-tools for scan mode's steer (§9.2) — the LEDGER path still asks
+    nothing, which is now enforced as prose law in §8 rather than by tool
+    omission. The frontmatter must carry all five tools."""
 
-    def test_skill_frontmatter_omits_ask_user_question(self):
+    def test_skill_frontmatter_tools(self):
         skill_path = os.path.join(REPO_ROOT, "skills", "memory", "SKILL.md")
         with open(skill_path, encoding="utf-8") as fh:
             text = fh.read()
         m = re.search(r"^allowed-tools:\s*(.+)$", text, re.MULTILINE)
         self.assertIsNotNone(m)
         tools = [t.strip() for t in m.group(1).split(",")]
-        self.assertNotIn("AskUserQuestion", tools)
+        self.assertIn("AskUserQuestion", tools)
         self.assertIn("Bash", tools)
         self.assertIn("Read", tools)
         self.assertIn("Write", tools)
@@ -2515,7 +2527,7 @@ class TestLedgerPluginJsonVersionBump(unittest.TestCase):
         path = os.path.join(REPO_ROOT, ".claude-plugin", "plugin.json")
         with open(path, encoding="utf-8") as fh:
             data = json.load(fh)
-        self.assertEqual(data["version"], "0.7.1")
+        self.assertEqual(data["version"], "0.8.0")  # SAR-09/10/11
 
 
 # ----------------------------------------------------------------------------

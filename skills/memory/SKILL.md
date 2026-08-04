@@ -1,8 +1,8 @@
 ---
 name: memory
-description: Read-only ledger of everything Sarathi's measure step already knows about you from memory files and steering decisions — every entry and every decision quoted verbatim, published as one living artifact ("Sarathi — Memory Ledger"), redeployed to the same URL every run. Never interprets, never asks, never writes. Use when the user asks what Sarathi knows about them, wants to see their memory entries or steering decisions, or asks for the memory ledger.
-argument-hint: "[--verbose]"
-allowed-tools: Bash, Read, Write, Artifact
+description: Read-only ledger of everything Sarathi's measure step already knows about you from memory files and steering decisions — every entry and every decision quoted verbatim, published as one living artifact ("Sarathi — Memory Ledger"), redeployed to the same URL every run; in ledger mode it never interprets, never asks, never writes. With --scan it instead runs the deterministic memory-organization detectors (misfiled entries, drifted duplicates, index/link/frontmatter hygiene) and walks the user through consent-gated fixes. Use when the user asks what Sarathi knows about them, wants the memory ledger, or — for --scan — asks to organize, clean up, or check their memory folders.
+argument-hint: "[--verbose] [--scan]"
+allowed-tools: Bash, Read, Write, Artifact, AskUserQuestion
 ---
 
 # Sarathi memory ledger
@@ -19,8 +19,15 @@ independent expand let a reader switch density client-side, no re-fetch, same pa
 way (SAR-06). This is a sibling to `/sarathi:report`, not a replacement for it: independent
 title, independent template, independent payload. A user can run either skill, both, or
 neither, in any order, any number of times. Nothing in `skills/report/` is touched by this
-skill, and this skill never asks a question, never writes a memory file or decision file, and
-never touches `MEMORY.md`.
+skill, and in this mode the skill never asks a question, never writes a memory file or decision
+file, and never touches `MEMORY.md`.
+
+**Mode fork (SAR-11):** if the user's own invocation text carries `--scan` (detected exactly the
+way §4 detects `--verbose` — the literal token in the invocation, never inferred from phrasing),
+you take §9's scan path INSTEAD of the ledger path (§§1–7 are skipped entirely; no artifact is
+published). Everything above and every rule in §8's first list is the LEDGER mode's law and is
+untouched by the fork; §9 carries its own, different law. When `--scan` is absent, §9 does not
+exist for you.
 
 ## 1. Check readiness — run-then-fallback, narrower than `/sarathi:doctor`
 
@@ -277,13 +284,15 @@ substance, at least:
   on-page toggle, nothing extra is fetched or sent — verbose just surfaces
   fields simple view was hiding, in the browser, from data already there.
 
-## 8. What this skill never does
+## 8. What this skill never does (ledger mode — the list scan mode §9 amends for itself)
 
-- Never calls `AskUserQuestion` — `allowed-tools` omits it entirely, on
-  purpose. This skill asks nothing, ever.
-- Never writes a memory file, a decision file, or `MEMORY.md` — read-only,
-  end to end, stronger than `/sarathi:report`'s own relationship to those
-  files (which at least writes decisions via realign).
+- Never calls `AskUserQuestion` in ledger mode. (SAR-11 adds the tool to
+  `allowed-tools` for §9's steer alone; the ledger path still asks
+  nothing, ever.)
+- Never writes a memory file, a decision file, or `MEMORY.md` in ledger
+  mode — read-only, end to end, stronger than `/sarathi:report`'s own
+  relationship to those files (which at least writes decisions via
+  realign). Scan mode writes exactly what §9 authorizes, nothing else.
 - Never reads or writes `config.json`'s `voice` key, and never composes any
   free-text phrasing — there is nothing on this page for a voice setting to
   govern.
@@ -293,3 +302,126 @@ substance, at least:
 - Writes only `output_path` (via the reused `measure` step) and, fallback
   mode only, `<dir of output_path>/ledger-<as_of>.html` — no other file, no
   other directory, ever.
+
+## 9. Scan mode — `--scan` (SAR-10 + SAR-11): detect, ask, fix by prompt
+
+The organize surface. Three stages, in order, never reordered: the script
+detects (deterministically, no model in the loop), you ask (closed
+questions, bounded verdicts, every question citing a finding id), and you
+fix (each fix a fixed procedure, executed only on this run's explicit
+consent, every file operation shown in the transcript). You never discover
+a finding yourself, never re-classify one, and never act without a consent
+given in this session (rule 3, and the owner's 2026-08-05 flow ruling).
+
+### 9.1 Detect — run the scanner, read the findings
+
+1. Resolve `<config-dir>` and read `config.json` exactly as §1/§2 do; you
+   need `project_roots` and `output_path` from it.
+2. Run the detector script — all logic lives there, unit-tested, stdlib
+   only (SAR-10):
+
+   `<python> <skill-dir>/scan_memory_org.py --roots <each project_roots value> --out <dir of output_path>/sarathi-findings.json`
+
+   The `--roots` values are handed over verbatim from the config — the
+   script deliberately does not re-read or re-validate config.json.
+3. Read the findings JSON. Present a short mechanical summary first:
+   finding count per family, the rent table's total and largest folder
+   (verbatim numbers), and the `corpus_hash`. Quote evidence only from the
+   findings document — never from your own re-reading of the corpus.
+4. **Prior rulings suppress re-asks:** before steering, read any
+   `sarathi-organize-*.md` files in each finding's home memory folder. A
+   finding whose id appears in one, with the same recorded
+   `entry_sha` as the current finding's entry content, is already ruled —
+   report it as such and do not ask again. A changed hash reopens the
+   question (state that it reopened and why).
+
+### 9.2 Steer — families `placement` and `duplication` always ask first
+
+One closed question per unruled finding, via `AskUserQuestion` (≤4
+questions per call; batch until done — a dedicated scan run has no
+report-style 2-question cap). The verdict sets are fixed per detector:
+
+| detector | verdicts |
+|---|---|
+| `foreign_path` | move to `<target>` · stays (cross-reference) · archive |
+| `wikilink_demand` | record demand · remove link |
+| `orphaned_folder` | renamed → remap to one of the listed candidates · dead → archive folder · leave |
+| `same_basename` (state `drifted`) | pick a winner (one option per folder) · merge · keep both knowingly |
+| `same_basename` (state `identical`) | keep one (one option per folder) · keep both knowingly |
+| `same_basename` where every colliding file matches the decision-filename pattern | migrate (rename each to its slug-bearing SAR-09 form + index it) · leave |
+
+"Stays", "leave", and "keep both knowingly" are real verdicts — they get
+recorded like any other (9.4) so the finding never re-asks.
+
+### 9.3 Fix — family `hygiene` is one batched confirmation, then procedures
+
+Hygiene findings carry no ruling content. List every proposed hygiene fix
+as one itemized preview (finding id → exact operation), ask ONE yes/no
+confirmation for the batch, then execute. Exception: any DELETE of a file
+is pulled out of the batch and consented singly, always.
+
+The fix procedures, by `fix_class` (fixed, never improvised):
+
+- **move+reindex**: write the entry at the destination memory folder
+  (create the folder and a `# Memory index` MEMORY.md if absent) → append
+  its index line there → delete the source file (singly consented) →
+  remove its source index line. Append `moved_from: <home slug>` and
+  `moved_on: <date>` lines to the moved entry's frontmatter metadata.
+- **merge-or-pick**: show both copies verbatim → the user picks the winner
+  or dictates the merge → write the result to the ruled home → delete the
+  loser (singly consented) → fix both indexes.
+- **archive**: move the file to `<config-dir>/memory-archive/<home slug>/`
+  (created on demand; no session ever loads it) → remove its index line.
+- **add-index-line**: append the standard `- [Name](file.md) — description`
+  line (creating MEMORY.md with the `# Memory index` header if absent).
+  Append-only, §7-of-report posture: never edit or reorder existing lines.
+- **fill-frontmatter**: add the missing keys with values quoted or
+  minimally summarized from the entry's own text — never invented facts.
+- **remove-link**: delete the dangling `[[link]]` text (or the dangling
+  index line) only; the surrounding sentence is otherwise untouched.
+- **record-only**: nothing on disk beyond the 9.4 record.
+- **migrate** (decision files): rename to
+  `sarathi-decision-<project-basename>-<decided>.md` where the basename
+  comes from the folder's matched project (the findings document's
+  evidence), old name shown → new name shown; then add its index line.
+  Orphan folders' decision files keep their name (no basename exists to
+  use — same rule as report §7 step 2).
+
+### 9.4 Record — every verdict becomes a dated organize file
+
+For each ruled finding (including "stays"/"leave"), write ONE file in the
+finding's home memory folder:
+`sarathi-organize-<date>[-N].md` (N on collision, lowest unused), with
+frontmatter `name` (the filename stem), `description` (one line: verdict +
+finding id), `type: sarathi-organize`, and a body listing: finding id,
+detector, verdict, the entry's `sha` at ruling time (`entry_sha: <hash>`,
+copied from the findings JSON — this is what 9.1 step 4 compares), and
+every file operation performed. Batch hygiene fixes get one shared file
+per home folder. Index each written file (add-index-line procedure).
+These files deliberately do NOT match the decision-filename pattern —
+measure's decision parser never sees them; they are ordinary memory
+entries recording organize rulings.
+
+### 9.5 Scan mode's own law
+
+- Nothing is written before its consent in THIS run; consent is per
+  action class per run, never standing.
+- Every write, move, rename, append, and delete is shown in the
+  transcript with exact paths (old → new where applicable). No silent
+  operations, ever.
+- Deletes are singly consented, always — never inside a batch yes.
+- Never edit an entry's body text except the two authorized touches:
+  `moved_from`/`moved_on` metadata on a move, and `remove-link`'s exact
+  deletion. Never rewrite, rephrase, or "improve" anyone's memory.
+- Import is out of scope (the fork is parked): a move relocates the only
+  copy; you never copy a rule into additional projects. If the user asks
+  for an import mid-run, record it in the 9.4 file as demand evidence and
+  move on.
+- No artifact, no network beyond what the Artifact-free path already
+  does: the scanner script is zero-network by construction, and scan mode
+  publishes nothing.
+- Writes allowed in scan mode, exhaustively: the findings JSON at
+  `<dir of output_path>/sarathi-findings.json`, consented fixes inside
+  `<config-dir>/projects/*/memory/`, the archive tree
+  `<config-dir>/memory-archive/`, and 9.4's organize files. Nothing else,
+  nowhere else.

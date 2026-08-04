@@ -175,12 +175,14 @@ so a v1-shaped consumer reading only the old keys keeps working.
 Written exclusively by `/sarathi:report`'s realign step, read exclusively
 by `measure`'s decision parser — never written by `sarathi.py` itself.
 Location: `<config-dir>/projects/<slug>/memory/`, the same memory directory
-`measure`'s `memory` subsection already reads. Filename:
-`sarathi-decision-<YYYY-MM-DD>[-N].md`, matching
-`^sarathi-decision-\d{4}-\d{2}-\d{2}(?:-\d+)?\.md$` — any file matching this
-pattern is permanently claimed as a decision file, never reinterpreted as
-an ordinary memory entry even if its contents fail to parse. Required
-frontmatter:
+`measure`'s `memory` subsection already reads. Filename (SAR-09 amends):
+`sarathi-decision-<project-basename>-<YYYY-MM-DD>[-N].md` for projects,
+`sarathi-decision-<YYYY-MM-DD>[-N].md` for orphans and all pre-SAR-09
+files (the original shape stays matched forever), both covered by
+`^sarathi-decision-(?:[A-Za-z0-9._-]+-)?\d{4}-\d{2}-\d{2}(?:-\d+)?\.md$` —
+any file matching this pattern is permanently claimed as a decision file,
+never reinterpreted as an ordinary memory entry even if its contents fail
+to parse. Required frontmatter:
 
 ```
 ---
