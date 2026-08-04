@@ -216,6 +216,35 @@ computed against (defaults to today); same project trees + same date → byte-id
   is stronger still on the write side: it never writes a memory file, a decision file, or
   `MEMORY.md` — read-only end to end. No telemetry, ever.
 
+## Privacy
+
+The complete data-flow picture, consolidated from the sections above — nothing here is new,
+and if this section ever disagrees with the detailed prose above, the detailed prose wins:
+
+- **`sarathi.py` makes zero network calls, always.** This is a permanent design invariant,
+  not a current implementation detail. The measurement script reads only local files (your
+  git repositories, Claude Code session and memory files under your config directory) and
+  writes only its own configured output file. No telemetry, ever.
+- **Exactly four network exceptions exist, all in the skill layer, all disclosed in
+  detail above:**
+  1. **Plugin install/update** — Claude Code's own marketplace infrastructure fetches this
+     repository from GitHub. Host infrastructure, not Sarathi's code.
+  2. **`/sarathi:report` publish** — sends the rendered report (the model's cited claims
+     about your projects) to claude.ai's artifact hosting, only when the Artifact tool is
+     available and used. Disclosed in-session every run. Artifacts start private.
+  3. **`/sarathi:memory` publish** — sends your memory entries and steering decisions,
+     verbatim, to the same artifact hosting under the same conditions. This is the most
+     personal content Sarathi handles, and the skill says so explicitly on every run.
+     Orphaned-project names are trimmed so your OS username never leaves the machine.
+  4. **`/sarathi:doctor` version check** — one anonymous, read-only `git ls-remote` against
+     this public repository's tag list. Nothing about you or your projects is sent.
+     Updating afterward is a separate, consent-gated action.
+- **Write surface, complete list:** the config file (during guided setup), the fact-sheet
+  output file, dated decision files written only on your explicitly answered say-so during
+  realign, and local-fallback report/ledger HTML files written only when the Artifact tool
+  is unavailable. The Uninstall section below accounts for every one of them.
+- **No secrets, tokens, or credentials are ever read or logged.**
+
 ## Uninstall
 
 If you installed the plugin, remove it first:
