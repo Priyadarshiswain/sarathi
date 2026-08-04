@@ -2,7 +2,7 @@
   "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
   "name": "sarathi",
   "displayName": "Sarathi",
-  "version": "0.7.0",
+  "version": "0.7.1",
   "description": "The charioteer for your side projects: a deterministic script measures every project (git dates, uncommitted counts, session recency, memory ages); the LLM interprets the fact sheet with mandatory citations.",
   "author": {
     "name": "Priyadarshiswain",
@@ -10,5 +10,13 @@
   },
   "homepage": "https://github.com/Priyadarshiswain/sarathi",
   "repository": "https://github.com/Priyadarshiswain/sarathi",
-  "keywords": ["projects", "portfolio", "git", "status", "measurement", "deterministic"]
+  "keywords": [
+    "projects",
+    "portfolio",
+    "git",
+    "status",
+    "measurement",
+    "deterministic"
+  ],
+  "license": "MIT"
 }
