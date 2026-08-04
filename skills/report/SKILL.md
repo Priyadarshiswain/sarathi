@@ -335,11 +335,20 @@ did — say so, write nothing):
 1. **`decided` = `facts.as_of`** from the fact sheet you already read in
    §3 — never "today" independently guessed; `facts.as_of` is the one date
    already grounding every other claim in this report run.
-2. **Target path**: `<config-dir>/projects/<slug>/memory/sarathi-decision-<decided>.md`,
-   using the candidate's own `"slug"` field straight from `steer_candidates`
-   — never re-derived from the display key, never guessed (rule 3: the LLM
-   never reimplements slug resolution). `<config-dir>` is the same
-   `$CLAUDE_CONFIG_DIR`-or-`~/.claude` resolved in §1.
+2. **Target path** (filename amended by SAR-09 ruling C):
+   `<config-dir>/projects/<slug>/memory/sarathi-decision-<key>-<decided>.md`
+   for a candidate of kind `project`, where `<key>` is the candidate's own
+   `"key"` field copied verbatim from `steer_candidates`; a candidate of
+   kind `orphan` has no `"key"` field, so orphans keep the original
+   `sarathi-decision-<decided>.md` shape — never derive a name component
+   from the slug or the display text (rule 3: the LLM never reimplements
+   slug or name resolution). The directory `<slug>` likewise comes
+   straight from the candidate's `"slug"` field. `<config-dir>` is the
+   same `$CLAUDE_CONFIG_DIR`-or-`~/.claude` resolved in §1. Old-format
+   files already on disk (`sarathi-decision-<decided>.md` under a
+   project) remain valid decision files forever — read, never renamed by
+   this skill (migration is the memory skill's scan mode's consent-gated
+   job, SAR-11).
 3. **Collision handling**: if a file already exists at that exact path,
    append `-2`, `-3`, ... (the lowest unused suffix) rather than overwriting
    it. Decisions accumulate — never edited or replaced in place.
@@ -348,7 +357,7 @@ did — say so, write nothing):
 
    ```
    ---
-   name: sarathi-decision-<decided>
+   name: <the filename from step 2, without .md>
    description: "<whatever reasoning the user gave, if any — may be empty>"
    type: sarathi-decision
    verdict: <parked|active-next|dead|keep-watching, from the table in §6>
@@ -364,9 +373,22 @@ did — say so, write nothing):
 5. **Show the write.** Immediately after writing, print the file's full
    contents back into the transcript verbatim, and state its absolute path
    explicitly. Never a silent write the user has to go looking for.
-6. **Never touch any other file.** In particular: never edit or append to
-   `MEMORY.md` in that memory directory, and never edit or delete any other
-   memory file already present there — including an earlier decision file.
+6. **Index the write** (SAR-09 ruling A — the one carve-out from step 7's
+   never-touch rule): append exactly one line to `MEMORY.md` in that same
+   memory directory —
+
+   `- [Sarathi decision <decided>](<filename from step 2>) — <verdict>: <the description text, or "no reason given">`
+
+   — creating the file first with the single header line `# Memory index`
+   and a blank line if it does not exist. Append-only: never edit,
+   reorder, or delete any existing line, and if the exact line is somehow
+   already present, skip the append rather than duplicate it. Show the
+   appended line (and note if MEMORY.md was created) in the transcript,
+   same no-silent-writes posture as step 5.
+7. **Never touch any other file.** Beyond the decision file (step 4) and
+   the single MEMORY.md index-line append (step 6), never edit or delete
+   any other memory file already present there — including an earlier
+   decision file.
    Two different steer answers for two different candidates in the same run
    are two separate writes, each under its own project's/orphan's own
    memory directory, each shown verbatim with its own path — never batched

@@ -126,8 +126,13 @@ VALID_VERDICT_VALUES = {"parked", "active-next", "dead", "keep-watching"}
 # is permanently claimed as a decision file -- never reinterpreted as an
 # ordinary memory entry, even if its contents fail to parse (rule 2). The
 # optional `-<N>` suffix handles a second decision for the same project on
-# the same calendar date.
-DECISION_FILENAME_RE = re.compile(r"^sarathi-decision-\d{4}-\d{2}-\d{2}(?:-\d+)?\.md$")
+# the same calendar date. SAR-09 adds the slug-bearing form
+# sarathi-decision-<project-basename>-<date>.md; the original dateless-slug
+# shape stays matched forever (backward compatibility is a criterion, not
+# an option -- design rule 6).
+DECISION_FILENAME_RE = re.compile(
+    r"^sarathi-decision-(?:[A-Za-z0-9._-]+-)?\d{4}-\d{2}-\d{2}(?:-\d+)?\.md$"
+)
 
 
 # --------------------------------------------------------------------------
