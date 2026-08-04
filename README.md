@@ -91,6 +91,18 @@ any order. `/sarathi:memory` opens its page in **simple** view by default; run
 `/sarathi:memory --verbose` to open it in **verbose** view instead — either way, the on-page
 toggle and each row's own click-to-expand switch density afterward without needing another run.
 
+Since v0.8, `/sarathi:memory --scan` takes a different path entirely: instead of publishing
+the ledger, it runs a deterministic scanner over your Claude Code memory folders and surfaces
+what's organizationally wrong — entries filed under one project but verifiably *about* another
+(they cite the other project's path), the same entry drifting apart in two folders, memory
+folders for projects that no longer exist, index files out of sync with what's on disk, broken
+`[[links]]`, and a token-cost table showing where the weight sits. Findings it can't decide it
+asks about (closed questions, one per finding — "move it", "it stays", "archive it"); hygiene
+fixes it batches into one itemized confirmation. Nothing is ever changed without your answer
+in that same session, every file operation is shown with exact paths, and each ruling is
+recorded so an unchanged corpus asks nothing on the next run. The scanner itself is plain
+stdlib Python with zero network access, like `sarathi.py`; scan mode publishes no artifact.
+
 Both the prompt-driven `claude plugin ...` commands and the manual `/plugin ...` slash commands
 are Claude Code's own operations, and both reach the network (GitHub) to fetch the marketplace
 and plugin contents — that access belongs to Claude Code's plugin infrastructure, not to
@@ -212,9 +224,13 @@ computed against (defaults to today); same project trees + same date → byte-id
   always shown to you verbatim with the exact path, never anything else. `sarathi.py` itself
   makes zero network calls, always — the exceptions are `/sarathi:report`'s and
   `/sarathi:memory`'s own publish steps sending their rendered pages to the Artifact tool's
-  hosting platform, only when that tool is available and used (see above). `/sarathi:memory`
-  is stronger still on the write side: it never writes a memory file, a decision file, or
-  `MEMORY.md` — read-only end to end. No telemetry, ever.
+  hosting platform, only when that tool is available and used (see above). `/sarathi:memory`'s
+  ledger mode is stronger still on the write side: it never writes a memory file, a decision
+  file, or `MEMORY.md` — read-only end to end. Its scan mode (v0.8) is the one deliberate
+  exception to that read-only stance, and it writes nothing until you answer: every move,
+  merge, archive, index fix, and ruling record happens only on consent given in that same
+  session, is shown verbatim with exact paths, and deletes are confirmed one file at a time,
+  never inside a batch yes. No telemetry, ever.
 
 ## Privacy
 
@@ -241,8 +257,14 @@ and if this section ever disagrees with the detailed prose above, the detailed p
      Updating afterward is a separate, consent-gated action.
 - **Write surface, complete list:** the config file (during guided setup), the fact-sheet
   output file, dated decision files written only on your explicitly answered say-so during
-  realign, and local-fallback report/ledger HTML files written only when the Artifact tool
-  is unavailable. The Uninstall section below accounts for every one of them.
+  realign, local-fallback report/ledger HTML files written only when the Artifact tool
+  is unavailable, and — since v0.8, all of it consent-gated inside `/sarathi:memory --scan` —
+  the scan findings JSON (next to the fact sheet), the organize fixes you approve inside
+  `<config-dir>/projects/*/memory/` (moves, index lines, frontmatter fills, link removals),
+  the archive tree `<config-dir>/memory-archive/` fixes move entries into, and dated
+  `sarathi-organize-*.md` ruling records. Scan mode adds **no network exception** — the
+  scanner is zero-network like `sarathi.py`, and scan mode publishes nothing. The Uninstall
+  section below accounts for every one of them.
 - **No secrets, tokens, or credentials are ever read or logged.**
 
 ## Uninstall
@@ -266,15 +288,22 @@ rm -rf <config-dir>/sarathi    # config; <config-dir> is $CLAUDE_CONFIG_DIR or ~
 rm <output-path>               # the fact sheet, at the output_path you set in config.json
 rm <dir of output-path>/report-*.html   # local fallback report(s), from v0.4, if any exist
 rm <dir of output-path>/ledger-*.html   # local fallback ledger(s), from v0.5, if any exist
+rm <dir of output-path>/sarathi-findings.json  # scan findings, from v0.8, if you ever ran --scan
+rm -rf <config-dir>/memory-archive     # entries scan mode archived on your say-so, from v0.8
 ```
 
 Since v0.3, `/sarathi:report`'s realign step also writes decision files named
-`sarathi-decision-<date>[-N].md` inside the same per-project memory directories Claude Code
-already maintains under `<config-dir>/projects/<slug>/memory/` — the same directories
-`doctor`/`report` were already reading from before v0.3, not a new location Sarathi
-introduced. They're plain markdown, easy to find (`find <config-dir>/projects -name
-'sarathi-decision-*.md'`) and delete by hand if you want a truly clean slate; leaving them is
-also fine — an uninstalled Sarathi simply stops reading them.
+`sarathi-decision-<date>[-N].md` (since v0.8 usually `sarathi-decision-<project>-<date>[-N].md`)
+inside the same per-project memory directories Claude Code already maintains under
+`<config-dir>/projects/<slug>/memory/` — the same directories `doctor`/`report` were already
+reading from before v0.3, not a new location Sarathi introduced. Since v0.8,
+`/sarathi:memory --scan` records its rulings in `sarathi-organize-<date>[-N].md` files in the
+same places. Both kinds are plain markdown, easy to find (`find <config-dir>/projects -name
+'sarathi-decision-*.md' -o -name 'sarathi-organize-*.md'`) and delete by hand if you want a
+truly clean slate; leaving them is also fine — an uninstalled Sarathi simply stops reading
+them. One caution unique to scan mode: fixes you approved (moved or archived entries, edited
+index lines) changed your memory folders themselves — that's their job, they were shown to
+you at the time, and uninstalling doesn't (and couldn't) revert them.
 
 That's a complete removal of everything on this machine. Sarathi writes no caches, no state
 in your project directories, nothing outside the paths above — and `sarathi.py` itself never
